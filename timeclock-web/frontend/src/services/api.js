@@ -45,6 +45,7 @@ export const registerUser = async (userData) => {
 
 export const clockIn = async (clockInData) => {
   try {
+    console.log('Sending clock in data:', clockInData);
     // If photo is too large, compress it further
     if (clockInData.photo && clockInData.photo.length > 1000000) {
       clockInData.photo = compressImage(clockInData.photo);
@@ -57,7 +58,9 @@ export const clockIn = async (clockInData) => {
       },
       body: JSON.stringify(clockInData),
     });
-    return await response.json();
+    const responseData = await response.json();
+    console.log('Clock in response:', responseData);
+    return responseData;
   } catch (error) {
     console.error('Clock in error:', error);
     throw error;
