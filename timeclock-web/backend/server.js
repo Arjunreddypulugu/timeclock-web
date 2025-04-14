@@ -151,6 +151,21 @@ app.post('/api/clock-in', async (req, res) => {
     await poolConnect;
     const { subContractor, employee, number, lat, lon, cookie, notes } = req.body;
 
+    // First verify location is valid before allowing clock in
+    const validLocation = await pool.request()
+      .input('lat', sql.Float, lat)
+      .input('lon', sql.Float, lon)
+      .query(`
+        SELECT customer_name
+        FROM LocationCustomerMapping
+        WHERE @lat BETWEEN min_latitude AND max_latitude
+        AND @lon BETWEEN min_longitude AND max_longitude
+      `);
+    
+    if (validLocation.recordset.length === 0) {
+      return res.status(400).json({ error: 'Invalid worksite location. Cannot clock in.' });
+    }
+
     // Check for open session
     const openSession = await pool.request()
       .input('cookie', sql.NVarChar, cookie)
@@ -171,14 +186,16 @@ app.post('/api/clock-in', async (req, res) => {
       .input('lon', sql.Float, lon)
       .input('cookie', sql.NVarChar, cookie)
       .input('notes', sql.NVarChar, notes)
+      .input('worksite', sql.NVarChar, validLocation.recordset[0].customer_name)
       .query(`
-        INSERT INTO TimeClock (SubContractor, Employee, Number, ClockIn, Lat, Lon, Cookie, ClockInNotes)
-        VALUES (@subContractor, @employee, @number, GETDATE(), @lat, @lon, @cookie, @notes);
+        INSERT INTO TimeClock (SubContractor, Employee, Number, ClockIn, Lat, Lon, Cookie, ClockInNotes, Worksite)
+        VALUES (@subContractor, @employee, @number, GETDATE(), @lat, @lon, @cookie, @notes, @worksite);
         SELECT SCOPE_IDENTITY() as id;
       `);
 
-    res.json({ id: result.recordset[0].id });
+    res.json({ id: result.recordset[0].id, worksite: validLocation.recordset[0].customer_name });
   } catch (err) {
+    console.error(`Clock in error: ${err.message}`);
     res.status(500).json({ error: err.message });
   }
 });
