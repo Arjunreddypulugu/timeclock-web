@@ -92,7 +92,7 @@ const Worksite = styled.div`
 
 const LocationCard = ({ 
   location, 
-  worksite, 
+  customerName, 
   handleShareLocation,
   loading 
 }) => {
@@ -121,9 +121,9 @@ const LocationCard = ({
           <p><strong>Latitude:</strong> {location.lat.toFixed(6)}</p>
           <p><strong>Longitude:</strong> {location.lon.toFixed(6)}</p>
           
-          {worksite && (
+          {customerName && (
             <Worksite>
-              Worksite: {worksite}
+              Worksite: {customerName}
             </Worksite>
           )}
         </LocationInfo>

@@ -223,8 +223,7 @@ app.post('/api/clock-in', async (req, res) => {
       .input('lat', sql.Float, lat)
       .input('lon', sql.Float, lon)
       .input('cookie', sql.NVarChar, cookie)
-      .input('notes', sql.NVarChar(sql.MAX), notes || '')
-      .input('worksite', sql.NVarChar, validLocation.recordset[0].customer_name);
+      .input('notes', sql.NVarChar(sql.MAX), notes || '');
     
     // Only add image if it's valid
     if (imageBuffer && imageBuffer.length > 0) {
@@ -234,11 +233,11 @@ app.post('/api/clock-in', async (req, res) => {
     // Build the query dynamically based on whether we have an image
     let query = `
       INSERT INTO TimeClock (
-        SubContractor, Employee, Number, ClockIn, Lat, Lon, Cookie, ClockInNotes, Worksite
+        SubContractor, Employee, Number, ClockIn, Lat, Lon, Cookie, ClockInNotes
         ${imageBuffer && imageBuffer.length > 0 ? ', ClockInImage' : ''}
       )
       VALUES (
-        @subContractor, @employee, @number, GETDATE(), @lat, @lon, @cookie, @notes, @worksite
+        @subContractor, @employee, @number, GETDATE(), @lat, @lon, @cookie, @notes
         ${imageBuffer && imageBuffer.length > 0 ? ', @image' : ''}
       );
       SELECT SCOPE_IDENTITY() as id;
@@ -250,7 +249,7 @@ app.post('/api/clock-in', async (req, res) => {
 
     res.json({ 
       id: result.recordset[0].id, 
-      worksite: validLocation.recordset[0].customer_name,
+      customer_name: validLocation.recordset[0].customer_name,
       imageIncluded: !!(imageBuffer && imageBuffer.length > 0)
     });
   } catch (err) {

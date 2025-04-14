@@ -77,7 +77,7 @@ const TimeClockCard = ({
   setNotes,
   loading,
   location,
-  worksite
+  customerName
 }) => {
   const formatTimestamp = (timestamp) => {
     if (!timestamp) return '';
@@ -138,7 +138,7 @@ const TimeClockCard = ({
               fullWidth
               size="large"
               onClick={handleClockIn}
-              disabled={loading || !location.lat || !location.lon || !worksite || worksite === 'Unknown location'}
+              disabled={loading || !location.lat || !location.lon || !customerName || customerName === 'Unknown location'}
             >
               {loading ? 'Processing...' : 'Clock In'}
             </Button>
@@ -147,7 +147,7 @@ const TimeClockCard = ({
               <Hint>Please share your location to clock in</Hint>
             )}
             
-            {(location.lat && location.lon && (!worksite || worksite === 'Unknown location')) && (
+            {(location.lat && location.lon && (!customerName || customerName === 'Unknown location')) && (
               <Hint>You must be at a valid worksite to clock in</Hint>
             )}
           </>

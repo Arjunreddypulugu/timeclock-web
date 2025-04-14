@@ -17,7 +17,7 @@ function App() {
   const [openSession, setOpenSession] = useState(null);
   const [userDetails, setUserDetails] = useState(null);
   const [location, setLocation] = useState({ lat: null, lon: null });
-  const [worksite, setWorksite] = useState('');
+  const [customerName, setCustomerName] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   
@@ -77,7 +77,7 @@ function App() {
             
             // Verify location with backend
             const response = await verifyLocation(lat, lon);
-            setWorksite(response.customer_name || 'Unknown location');
+            setCustomerName(response.customer_name || 'Unknown location');
             setLoading(false);
           } catch (err) {
             setError('Location verification failed: ' + (err.message || 'Unknown error'));
@@ -133,7 +133,7 @@ function App() {
       return;
     }
     
-    if (!worksite || worksite === 'Unknown location') {
+    if (!customerName || customerName === 'Unknown location') {
       setError('You must be at a valid worksite to clock in');
       return;
     }
@@ -274,7 +274,7 @@ function App() {
           <>
             <LocationCard 
               location={location}
-              worksite={worksite}
+              customerName={customerName}
               handleShareLocation={handleShareLocation}
               loading={loading}
             />
@@ -301,7 +301,7 @@ function App() {
                 setNotes={setNotes}
                 loading={loading}
                 location={location}
-                worksite={worksite}
+                customerName={customerName}
               />
             )}
           </>
