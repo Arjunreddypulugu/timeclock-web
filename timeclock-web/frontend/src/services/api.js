@@ -1,4 +1,5 @@
-const API_URL = 'http://localhost:5000/api';
+// Use environment variable if available, otherwise default to localhost
+const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
 
 export const verifyLocation = async (lat, lon) => {
   try {
