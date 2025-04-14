@@ -121,6 +121,17 @@ function App() {
   };
 
   const handleCapturePhoto = (photoData) => {
+    console.log("Received photo data in App component");
+    
+    // Validate photo data
+    if (!photoData || photoData === 'data:,') {
+      setError('Failed to capture photo. Please try again.');
+      setShowCamera(false);
+      setCameraAction(null);
+      return;
+    }
+    
+    // Store the photo and display preview
     setPhoto(photoData);
     setPhotoPreview(photoData);
     setShowCamera(false);
@@ -133,8 +144,10 @@ function App() {
     setTimeout(() => {
       // Proceed with clock in/out if photo was for a specific action
       if (cameraAction === 'clockIn') {
+        console.log("Processing clock-in with photo");
         performClockIn(photoData);
       } else if (cameraAction === 'clockOut') {
+        console.log("Processing clock-out with photo");
         performClockOut(photoData);
       } else {
         setLoading(false);
@@ -143,7 +156,7 @@ function App() {
       
       // Reset camera action after processing
       setCameraAction(null);
-    }, 100);
+    }, 300); // Increased delay to ensure UI is updated
   };
 
   const handleCancelPhoto = () => {

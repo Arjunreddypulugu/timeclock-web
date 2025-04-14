@@ -45,9 +45,13 @@ export const registerUser = async (userData) => {
 
 export const clockIn = async (clockInData) => {
   try {
+    console.log("Clock in API called with photo:", clockInData.photo ? `${clockInData.photo.substring(0, 50)}... (${clockInData.photo.length} chars)` : 'No photo');
+    
     // If photo is too large, compress it further
     if (clockInData.photo && clockInData.photo.length > 1000000) {
+      console.log("Compressing large photo for clock in");
       clockInData.photo = await compressImage(clockInData.photo);
+      console.log("Photo compressed, new size:", clockInData.photo.length);
     }
     
     const response = await fetch(`${API_URL}/clock-in`, {
@@ -66,9 +70,13 @@ export const clockIn = async (clockInData) => {
 
 export const clockOut = async (clockOutData) => {
   try {
+    console.log("Clock out API called with photo:", clockOutData.photo ? `${clockOutData.photo.substring(0, 50)}... (${clockOutData.photo.length} chars)` : 'No photo');
+    
     // If photo is too large, compress it further
     if (clockOutData.photo && clockOutData.photo.length > 1000000) {
+      console.log("Compressing large photo for clock out");
       clockOutData.photo = await compressImage(clockOutData.photo);
+      console.log("Photo compressed, new size:", clockOutData.photo.length);
     }
     
     const response = await fetch(`${API_URL}/clock-out`, {

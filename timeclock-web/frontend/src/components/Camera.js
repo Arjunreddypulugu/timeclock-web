@@ -8,6 +8,7 @@ const Camera = ({ onCapture, onCancel }) => {
   const [isVideoActive, setIsVideoActive] = useState(false);
   const [cameraError, setCameraError] = useState('');
   const [permissionDenied, setPermissionDenied] = useState(false);
+  const [isCapturing, setIsCapturing] = useState(false);
   
   const startCamera = useCallback(async () => {
     try {
@@ -31,6 +32,7 @@ const Camera = ({ onCapture, onCancel }) => {
           videoRef.current.play()
             .then(() => {
               setIsVideoActive(true);
+              console.log("Camera started successfully");
             })
             .catch(err => {
               console.error("Error playing video:", err);
@@ -63,36 +65,68 @@ const Camera = ({ onCapture, onCancel }) => {
   }, [stream]);
 
   const capturePhoto = useCallback(() => {
-    if (!isVideoActive || !videoRef.current || !canvasRef.current) return;
-    
-    const video = videoRef.current;
-    const canvas = canvasRef.current;
-    
-    try {
-      // Set canvas dimensions to match video
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      
-      // Draw video frame to canvas
-      const context = canvas.getContext('2d');
-      context.drawImage(video, 0, 0, canvas.width, canvas.height);
-      
-      // Convert to base64 image
-      const photoData = canvas.toDataURL('image/jpeg', 0.8); // Slightly higher quality
-      
-      // Stop camera after capturing
-      stopCamera();
-      
-      // Pass photo data to parent component
-      onCapture(photoData);
-    } catch (err) {
-      console.error("Error capturing photo:", err);
-      setCameraError("Failed to capture photo. Please try again.");
+    if (isCapturing) return; // Prevent multiple captures
+    if (!isVideoActive || !videoRef.current || !canvasRef.current) {
+      console.error("Cannot capture: video or canvas not ready");
+      setCameraError("Camera is not ready. Please try again.");
+      return;
     }
-  }, [isVideoActive, onCapture, stopCamera]);
+    
+    // Set capturing state
+    setIsCapturing(true);
+    console.log("Starting photo capture...");
+    
+    // Small delay to ensure video is fully ready
+    setTimeout(() => {
+      try {
+        const video = videoRef.current;
+        const canvas = canvasRef.current;
+        
+        // Double check that video dimensions are available
+        if (!video.videoWidth || !video.videoHeight) {
+          console.error("Video dimensions not available:", video.videoWidth, video.videoHeight);
+          setCameraError("Failed to capture photo. Video not fully loaded.");
+          setIsCapturing(false);
+          return;
+        }
+        
+        console.log("Video dimensions:", video.videoWidth, video.videoHeight);
+        
+        // Set canvas dimensions to match video
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        
+        // Draw video frame to canvas
+        const context = canvas.getContext('2d');
+        context.drawImage(video, 0, 0, canvas.width, canvas.height);
+        
+        // Convert to base64 image
+        const photoData = canvas.toDataURL('image/jpeg', 0.8);
+        
+        // Check if photo was captured successfully
+        if (!photoData || photoData === 'data:,') {
+          console.error("Failed to capture photo: empty data");
+          setCameraError("Failed to capture photo. Please try again.");
+          setIsCapturing(false);
+          return;
+        }
+        
+        console.log("Photo captured successfully");
+        
+        // Stop camera after capturing
+        stopCamera();
+        
+        // Pass photo data to parent component
+        onCapture(photoData);
+      } catch (err) {
+        console.error("Error capturing photo:", err);
+        setCameraError("Failed to capture photo. Please try again.");
+        setIsCapturing(false);
+      }
+    }, 300); // Add a small delay before capture
+  }, [isVideoActive, onCapture, stopCamera, isCapturing]);
 
   // Start camera when component mounts, but not automatically
-  // This allows better user control over permissions
   useEffect(() => {
     // Cleanup function to stop camera when unmounting
     return () => {
@@ -121,6 +155,7 @@ const Camera = ({ onCapture, onCancel }) => {
               className="camera-video" 
               playsInline 
               muted
+              autoPlay
             />
             <div className="camera-overlay">
               <div className="face-guide"></div>
@@ -152,8 +187,12 @@ const Camera = ({ onCapture, onCancel }) => {
       
       <div className="camera-controls">
         {isVideoActive ? (
-          <button onClick={capturePhoto} className="capture-btn">
-            Take Photo
+          <button 
+            onClick={capturePhoto} 
+            className="capture-btn"
+            disabled={isCapturing}
+          >
+            {isCapturing ? 'Capturing...' : 'Take Photo'}
           </button>
         ) : (
           <button onClick={startCamera} className="start-btn">
