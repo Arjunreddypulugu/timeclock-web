@@ -50,80 +50,6 @@
   border-radius: 50%;
 }
 
-.camera-controls {
-  display: flex;
-  justify-content: space-between;
-  width: 100%;
-  margin-top: 10px;
-}
-
-.capture-btn, .start-btn {
-  background-color: #4CAF50;
-  color: white;
-  padding: 15px 20px;
-  border: none;
-  border-radius: 50px;
-  cursor: pointer;
-  font-weight: bold;
-  flex: 1;
-  margin-right: 10px;
-  font-size: 1.1rem;
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
-  transition: all 0.2s ease;
-}
-
-.capture-btn:hover, .start-btn:hover {
-  background-color: #45a049;
-  transform: translateY(-2px);
-  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.3);
-}
-
-.capture-btn:active, .start-btn:active {
-  transform: translateY(1px);
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
-}
-
-.capture-btn:disabled {
-  background-color: #cccccc;
-  cursor: not-allowed;
-  transform: none;
-  box-shadow: none;
-}
-
-.cancel-btn {
-  background-color: #f44336;
-  color: white;
-  padding: 15px 20px;
-  border: none;
-  border-radius: 50px;
-  cursor: pointer;
-  font-weight: bold;
-  flex: 1;
-  margin-left: 10px;
-  font-size: 1.1rem;
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
-  transition: all 0.2s ease;
-}
-
-.cancel-btn:hover {
-  background-color: #d32f2f;
-  transform: translateY(-2px);
-  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.3);
-}
-
-.cancel-btn:active {
-  transform: translateY(1px);
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
-}
-
-.photo-preview {
-  width: 100%;
-  max-width: 300px;
-  height: auto;
-  border-radius: 8px;
-  margin-bottom: 15px;
-}
-
 /* Camera placeholder for when video is not active */
 .camera-placeholder {
   width: 100%;
@@ -165,6 +91,82 @@
   right: -10px;
 }
 
+.camera-controls {
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+  margin-top: 10px;
+}
+
+.capture-btn, .start-btn {
+  background-color: #4CAF50;
+  color: white;
+  padding: 15px 20px; 
+  border: none;
+  border-radius: 50px;
+  cursor: pointer;
+  font-weight: bold;
+  flex: 1;
+  margin-right: 10px;
+  font-size: 1.1rem;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+  transition: all 0.2s ease;
+  -webkit-tap-highlight-color: transparent; /* Remove tap highlight on mobile */
+}
+
+.capture-btn:hover, .start-btn:hover {
+  background-color: #45a049;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.3);
+}
+
+.capture-btn:active, .start-btn:active {
+  transform: translateY(1px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.capture-btn:disabled {
+  background-color: #cccccc;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.cancel-btn {
+  background-color: #f44336;
+  color: white;
+  padding: 15px 20px;
+  border: none;
+  border-radius: 50px;
+  cursor: pointer;
+  font-weight: bold;
+  flex: 1;
+  margin-left: 10px;
+  font-size: 1.1rem;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+  transition: all 0.2s ease;
+  -webkit-tap-highlight-color: transparent; /* Remove tap highlight on mobile */
+}
+
+.cancel-btn:hover {
+  background-color: #d32f2f;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.3);
+}
+
+.cancel-btn:active {
+  transform: translateY(1px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.photo-preview {
+  width: 100%;
+  max-width: 300px;
+  height: auto;
+  border-radius: 8px;
+  margin-bottom: 15px;
+}
+
 /* Camera access message */
 .camera-message {
   color: white;
@@ -181,13 +183,39 @@
   background-color: rgba(244, 67, 54, 0.8);
 }
 
+/* Mobile specific styles */
 @media (max-width: 600px) {
   .camera-container {
     width: 95%;
+    padding: 10px;
+    margin-bottom: 10px;
   }
   
   .face-guide {
-    width: 160px;
-    height: 160px;
+    width: 150px;
+    height: 150px;
+  }
+  
+  .capture-btn, .start-btn, .cancel-btn {
+    padding: 16px 10px;
+    font-size: 1rem;
+    border-radius: 40px;
+  }
+  
+  .camera-message {
+    font-size: 0.8rem;
+    padding: 8px;
+  }
+  
+  /* Ensure the video container has a fixed height on mobile */
+  .video-container {
+    height: 60vh;
+    max-height: 400px;
+    aspect-ratio: auto;
+  }
+  
+  /* Make buttons larger and more finger-friendly on mobile */
+  .camera-controls {
+    margin-top: 15px;
   }
 } 

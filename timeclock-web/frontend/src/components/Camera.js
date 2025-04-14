@@ -10,6 +10,19 @@ const Camera = ({ onCapture, onCancel, onError }) => {
   const [permissionDenied, setPermissionDenied] = useState(false);
   const [isCapturing, setIsCapturing] = useState(false);
   const [videoLoaded, setVideoLoaded] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+  
+  // Detect mobile devices
+  useEffect(() => {
+    const checkMobile = () => {
+      const userAgent = navigator.userAgent || navigator.vendor || window.opera;
+      const isMobileDevice = /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(userAgent.toLowerCase());
+      setIsMobile(isMobileDevice);
+      console.log("Device detected:", isMobileDevice ? "Mobile" : "Desktop");
+    };
+    
+    checkMobile();
+  }, []);
   
   // Helper function to set errors both locally and in parent
   const setError = useCallback((message) => {
@@ -32,14 +45,21 @@ const Camera = ({ onCapture, onCancel, onError }) => {
       
       console.log("Requesting camera access...");
       
-      const mediaStream = await navigator.mediaDevices.getUserMedia({ 
-        video: { 
-          facingMode: 'user',
-          width: { ideal: 1280 },
-          height: { ideal: 720 }
-        },
+      // Different constraints for mobile vs desktop
+      const constraints = {
+        video: isMobile ? 
+          { facingMode: { exact: "user" } } : // Force front camera on mobile
+          { 
+            facingMode: "user",
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          },
         audio: false
-      });
+      };
+      
+      console.log("Using constraints:", JSON.stringify(constraints));
+      
+      const mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
       
       setStream(mediaStream);
       console.log("Camera access granted, setting up video element");
@@ -51,23 +71,49 @@ const Camera = ({ onCapture, onCancel, onError }) => {
         }
         
         videoRef.current.srcObject = mediaStream;
+        
+        // Try to handle mobile-specific issues
+        videoRef.current.setAttribute('playsinline', true);
+        videoRef.current.setAttribute('autoplay', true);
+        videoRef.current.setAttribute('muted', true);
+        
+        // Use both event and promise-based approaches for better mobile support
         videoRef.current.onloadedmetadata = () => {
           console.log("Video metadata loaded");
-          videoRef.current.play()
-            .then(() => {
-              console.log("Camera started successfully");
-              setIsVideoActive(true);
-              setVideoLoaded(true);
-            })
-            .catch(err => {
-              console.error("Error playing video:", err);
-              setError("Could not play video stream. Please try again.");
-            });
+          
+          // Try to play video with both approaches for better mobile compatibility
+          const playPromise = videoRef.current.play();
+          
+          if (playPromise !== undefined) {
+            playPromise
+              .then(() => {
+                console.log("Camera started successfully via promise");
+                setIsVideoActive(true);
+                setVideoLoaded(true);
+              })
+              .catch(err => {
+                console.error("Error playing video via promise:", err);
+                // On mobile, we may need user interaction, so don't set error yet
+                if (!isMobile) {
+                  setError("Could not play video stream. Please try again or tap the Start Camera button.");
+                }
+              });
+          }
         };
         
         // Additional event listeners for troubleshooting
-        videoRef.current.oncanplay = () => console.log("Video can play");
-        videoRef.current.onplaying = () => console.log("Video is playing");
+        videoRef.current.oncanplay = () => {
+          console.log("Video can play event triggered");
+          setIsVideoActive(true);
+          setVideoLoaded(true);
+        };
+        
+        videoRef.current.onplaying = () => {
+          console.log("Video is playing event triggered");
+          setIsVideoActive(true);
+          setVideoLoaded(true);
+        };
+        
         videoRef.current.onerror = (e) => {
           console.error("Video error:", e);
           setError("Video error: " + (e.target.error ? e.target.error.message : "Unknown error"));
@@ -86,11 +132,41 @@ const Camera = ({ onCapture, onCancel, onError }) => {
         setError("No camera found. Please ensure your device has a camera.");
       } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
         setError("Camera is in use by another application or not accessible.");
+      } else if (err.name === 'OverconstrainedError') {
+        console.log("Constraints too strict, trying fallback...");
+        // Fallback to basic constraints for mobile
+        try {
+          const fallbackStream = await navigator.mediaDevices.getUserMedia({ 
+            video: true, 
+            audio: false 
+          });
+          
+          setStream(fallbackStream);
+          
+          if (videoRef.current) {
+            videoRef.current.srcObject = fallbackStream;
+            videoRef.current.setAttribute('playsinline', true);
+            videoRef.current.setAttribute('autoplay', true);
+            videoRef.current.setAttribute('muted', true);
+            
+            // Try to play immediately
+            videoRef.current.play()
+              .then(() => {
+                console.log("Camera started successfully with fallback");
+                setIsVideoActive(true);
+                setVideoLoaded(true);
+              })
+              .catch(e => console.error("Fallback play failed:", e));
+          }
+        } catch (fallbackErr) {
+          console.error("Fallback camera access failed:", fallbackErr);
+          setError("Could not access camera. Please ensure you've granted camera permissions.");
+        }
       } else {
         setError("Could not access camera. Please ensure you've granted camera permissions.");
       }
     }
-  }, [stream, setError]);
+  }, [stream, setError, isMobile]);
   
   const stopCamera = useCallback(() => {
     console.log("Stopping camera...");
@@ -114,16 +190,19 @@ const Camera = ({ onCapture, onCancel, onError }) => {
   const capturePhoto = useCallback(() => {
     if (isCapturing) return; // Prevent multiple captures
     
-    if (!isVideoActive || !videoRef.current || !canvasRef.current) {
+    if (!videoRef.current || !canvasRef.current) {
       console.error("Cannot capture: video or canvas not ready");
       setError("Camera is not ready. Please try again.");
       return;
     }
     
-    if (!videoLoaded) {
-      console.error("Video not fully loaded yet");
-      setError("Camera is still initializing. Please wait a moment and try again.");
-      return;
+    // On mobile, we might need to force video activation for capture
+    if (!isVideoActive && videoRef.current.srcObject) {
+      setIsVideoActive(true);
+    }
+    
+    if (!videoLoaded && videoRef.current.srcObject) {
+      setVideoLoaded(true);
     }
     
     // Set capturing state
@@ -136,26 +215,39 @@ const Camera = ({ onCapture, onCancel, onError }) => {
         const video = videoRef.current;
         const canvas = canvasRef.current;
         
-        // Double check that video dimensions are available
-        if (!video.videoWidth || !video.videoHeight) {
-          console.error("Video dimensions not available:", video.videoWidth, video.videoHeight);
-          setError("Failed to capture photo. Video not fully loaded.");
-          setIsCapturing(false);
-          return;
+        // Special handling for mobile devices
+        if (isMobile) {
+          console.log("Mobile capture: using available dimensions");
+          // Use the actual element dimensions on mobile
+          const videoWidth = video.videoWidth || video.clientWidth || 640;
+          const videoHeight = video.videoHeight || video.clientHeight || 480;
+          
+          canvas.width = videoWidth;
+          canvas.height = videoHeight;
+          
+          console.log(`Using dimensions ${videoWidth}x${videoHeight} for capture`);
+        } else {
+          // Double check that video dimensions are available
+          if (!video.videoWidth || !video.videoHeight) {
+            console.error("Video dimensions not available:", video.videoWidth, video.videoHeight);
+            setError("Failed to capture photo. Video not fully loaded.");
+            setIsCapturing(false);
+            return;
+          }
+          
+          console.log("Video dimensions:", video.videoWidth, video.videoHeight);
+          
+          // Set canvas dimensions to match video
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
         }
-        
-        console.log("Video dimensions:", video.videoWidth, video.videoHeight);
-        
-        // Set canvas dimensions to match video
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
         
         // Draw video frame to canvas
         const context = canvas.getContext('2d');
         context.drawImage(video, 0, 0, canvas.width, canvas.height);
         
         // Convert to base64 image
-        const photoData = canvas.toDataURL('image/jpeg', 0.8);
+        const photoData = canvas.toDataURL('image/jpeg', 0.7); // Lower quality for mobile
         
         // Check if photo was captured successfully
         if (!photoData || photoData === 'data:,') {
@@ -177,25 +269,29 @@ const Camera = ({ onCapture, onCancel, onError }) => {
         setError("Failed to capture photo. Please try again.");
         setIsCapturing(false);
       }
-    }, 500); // Increased delay before capture
-  }, [isVideoActive, onCapture, stopCamera, isCapturing, videoLoaded, setError]);
+    }, isMobile ? 800 : 500); // Longer delay for mobile devices
+  }, [isVideoActive, onCapture, stopCamera, isCapturing, videoLoaded, setError, isMobile]);
 
-  // Start camera when component mounts
+  // Attempt to start camera as soon as component mounts
   useEffect(() => {
-    console.log("Camera component mounted, starting camera...");
-    startCamera();
+    console.log("Camera component mounted");
+    // For mobile, we'll wait for user interaction rather than auto-starting
+    if (!isMobile) {
+      console.log("Auto-starting camera on non-mobile device");
+      startCamera();
+    }
     
     // Cleanup function when component unmounts
     return () => {
       stopCamera();
     };
-  }, [startCamera, stopCamera]);
+  }, [startCamera, stopCamera, isMobile]);
 
   // Retry camera initialization if it failed to load
   useEffect(() => {
     let retryTimeout;
     
-    if (isVideoActive && !videoLoaded) {
+    if (isVideoActive && !videoLoaded && !isMobile) {
       retryTimeout = setTimeout(() => {
         console.log("Video not loaded after activation, restarting camera");
         stopCamera();
@@ -206,25 +302,28 @@ const Camera = ({ onCapture, onCancel, onError }) => {
     return () => {
       if (retryTimeout) clearTimeout(retryTimeout);
     };
-  }, [isVideoActive, videoLoaded, startCamera, stopCamera]);
+  }, [isVideoActive, videoLoaded, startCamera, stopCamera, isMobile]);
 
   return (
     <div className="camera-container">
       <div className="video-container">
-        {isVideoActive ? (
-          <>
-            <video 
-              ref={videoRef} 
-              className="camera-video" 
-              playsInline 
-              muted
-              autoPlay
-            />
-            <div className="camera-overlay">
-              <div className="face-guide"></div>
-            </div>
-          </>
-        ) : (
+        {/* Always render the video element to avoid mobile permission issues */}
+        <video 
+          ref={videoRef} 
+          className="camera-video" 
+          playsInline 
+          muted
+          autoPlay
+          style={{ display: isVideoActive ? 'block' : 'none' }}
+        />
+        
+        {isVideoActive && (
+          <div className="camera-overlay">
+            <div className="face-guide"></div>
+          </div>
+        )}
+        
+        {!isVideoActive && (
           <div className="camera-placeholder">
             {permissionDenied ? (
               <div className="permission-denied">
@@ -234,11 +333,12 @@ const Camera = ({ onCapture, onCancel, onError }) => {
             ) : (
               <div className="camera-start-prompt">
                 <span>📷</span>
-                <p>Starting camera...</p>
+                <p>{isMobile ? 'Tap "Start Camera" below' : 'Starting camera...'}</p>
               </div>
             )}
           </div>
         )}
+        
         <canvas ref={canvasRef} style={{ display: 'none' }} />
       </div>
       
@@ -253,9 +353,9 @@ const Camera = ({ onCapture, onCancel, onError }) => {
           <button 
             onClick={capturePhoto} 
             className="capture-btn"
-            disabled={isCapturing || !videoLoaded}
+            disabled={isCapturing}
           >
-            {isCapturing ? 'Capturing...' : (videoLoaded ? 'Take Photo' : 'Loading camera...')}
+            {isCapturing ? 'Capturing...' : 'Take Photo'}
           </button>
         ) : (
           <button onClick={startCamera} className="start-btn">
