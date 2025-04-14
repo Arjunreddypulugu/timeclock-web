@@ -36,6 +36,21 @@ function App() {
   const [captureMode, setCaptureMode] = useState(''); // 'clockIn' or 'clockOut'
 
   useEffect(() => {
+    // Check for subcontractor parameter in URL
+    const params = new URLSearchParams(window.location.search);
+    const encodedSubcontractor = params.get('sc');
+    
+    if (encodedSubcontractor) {
+      try {
+        // Decode the base64 parameter
+        const decodedSubcontractor = atob(encodedSubcontractor);
+        setSubContractor(decodedSubcontractor);
+        console.log('Auto-filled subcontractor:', decodedSubcontractor);
+      } catch (err) {
+        console.error('Error decoding subcontractor parameter:', err);
+      }
+    }
+    
     // Generate cookie ID if not exists
     const storedCookieId = localStorage.getItem('timeclockCookieId');
     if (storedCookieId) {

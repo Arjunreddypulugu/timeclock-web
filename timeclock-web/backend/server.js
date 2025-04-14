@@ -372,6 +372,94 @@ app.get('/api/time-entries/:employeeId', async (req, res) => {
   }
 });
 
+// Generate and store subcontractor encoded links
+app.post('/api/generate-subcontractor-links', async (req, res) => {
+  try {
+    await poolConnect;
+    
+    // Get all subcontractors from the database
+    const subcontractors = await pool.request().query(`
+      SELECT DISTINCT SubContractor 
+      FROM SubContractorEmployees
+      ORDER BY SubContractor
+    `);
+    
+    const baseURL = 'https://timeclock-frontend-8d5n.onrender.com?sc=';
+    const results = [];
+    
+    // Process each subcontractor
+    for (const entry of subcontractors.recordset) {
+      const subcontractor = entry.SubContractor;
+      if (!subcontractor) continue;
+      
+      // Create base64 encoded value
+      const encodedName = Buffer.from(subcontractor).toString('base64');
+      const fullLink = baseURL + encodedName;
+      
+      // Check if entry already exists
+      const existing = await pool.request()
+        .input('subcontractor', sql.NVarChar, subcontractor)
+        .query(`
+          SELECT EncodedLink 
+          FROM SubcontractorLinks 
+          WHERE Subcontractor = @subcontractor
+        `);
+      
+      if (existing.recordset.length === 0) {
+        // Insert new link
+        await pool.request()
+          .input('subcontractor', sql.NVarChar, subcontractor)
+          .input('encodedLink', sql.NVarChar, fullLink)
+          .query(`
+            INSERT INTO SubcontractorLinks (Subcontractor, EncodedLink)
+            VALUES (@subcontractor, @encodedLink)
+          `);
+      } else {
+        // Update existing link
+        await pool.request()
+          .input('subcontractor', sql.NVarChar, subcontractor)
+          .input('encodedLink', sql.NVarChar, fullLink)
+          .query(`
+            UPDATE SubcontractorLinks 
+            SET EncodedLink = @encodedLink
+            WHERE Subcontractor = @subcontractor
+          `);
+      }
+      
+      results.push({
+        subcontractor,
+        encodedLink: fullLink
+      });
+    }
+    
+    res.json({
+      success: true,
+      message: `Generated ${results.length} subcontractor links`,
+      links: results
+    });
+  } catch (err) {
+    console.error(`Error generating subcontractor links: ${err.message}`);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get all subcontractor links
+app.get('/api/subcontractor-links', async (req, res) => {
+  try {
+    await poolConnect;
+    const result = await pool.request().query(`
+      SELECT Subcontractor, EncodedLink
+      FROM SubcontractorLinks
+      ORDER BY Subcontractor
+    `);
+    
+    res.json(result.recordset);
+  } catch (err) {
+    console.error(`Error fetching subcontractor links: ${err.message}`);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);

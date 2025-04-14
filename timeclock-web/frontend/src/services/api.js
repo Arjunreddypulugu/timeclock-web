@@ -125,4 +125,41 @@ export const testImageUpload = async (imageData) => {
     console.error('Test image error:', error);
     throw error;
   }
+};
+
+export const generateSubcontractorLinks = async () => {
+  try {
+    const response = await fetch(`${API_URL}/generate-subcontractor-links`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      }
+    });
+    
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || `Server error: ${response.status}`);
+    }
+    
+    return await response.json();
+  } catch (error) {
+    console.error('Generate subcontractor links error:', error);
+    throw error;
+  }
+};
+
+export const getSubcontractorLinks = async () => {
+  try {
+    const response = await fetch(`${API_URL}/subcontractor-links`);
+    
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || `Server error: ${response.status}`);
+    }
+    
+    return await response.json();
+  } catch (error) {
+    console.error('Get subcontractor links error:', error);
+    throw error;
+  }
 }; 
