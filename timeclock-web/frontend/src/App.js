@@ -171,19 +171,29 @@ function App() {
       return;
     }
     
-    setSuccess('');  // Clear any success messages
-    setError('');    // Clear any error messages
+    // Clear any previous errors or success messages
+    setSuccess('');
+    setError('');
     setCameraAction('clockIn');
     setShowCamera(true);
     setPhotoPreview(null);
+    console.log("Initiated clock in process, camera should open");
   };
   
   const initiateClockOut = () => {
-    setSuccess('');  // Clear any success messages
-    setError('');    // Clear any error messages
+    // Clear any previous errors or success messages
+    setSuccess('');
+    setError('');
     setCameraAction('clockOut');
     setShowCamera(true);
     setPhotoPreview(null);
+    console.log("Initiated clock out process, camera should open");
+  };
+
+  const handleCameraError = (errorMessage) => {
+    setError(`Camera error: ${errorMessage}`);
+    setShowCamera(false);
+    setCameraAction(null);
   };
 
   const performClockIn = async (photoData) => {
@@ -255,6 +265,7 @@ function App() {
           <Camera 
             onCapture={handleCapturePhoto} 
             onCancel={handleCancelPhoto}
+            onError={handleCameraError}
           />
         ) : (
           <>
