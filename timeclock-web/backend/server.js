@@ -138,7 +138,7 @@ app.post('/api/register', async (req, res) => {
 app.post('/api/clock-in', async (req, res) => {
   try {
     await poolConnect;
-    const { subContractor, employee, number, lat, lon, cookie, notes, photo } = req.body;
+    const { subContractor, employee, number, lat, lon, cookie, notes } = req.body;
 
     // Check for open session
     const openSession = await pool.request()
@@ -160,10 +160,9 @@ app.post('/api/clock-in', async (req, res) => {
       .input('lon', sql.Float, lon)
       .input('cookie', sql.NVarChar, cookie)
       .input('notes', sql.NVarChar, notes)
-      .input('photo', sql.NVarChar, photo)
       .query(`
-        INSERT INTO TimeClock (SubContractor, Employee, Number, ClockIn, Lat, Lon, Cookie, ClockInNotes, ClockInPhoto)
-        VALUES (@subContractor, @employee, @number, GETDATE(), @lat, @lon, @cookie, @notes, @photo);
+        INSERT INTO TimeClock (SubContractor, Employee, Number, ClockIn, Lat, Lon, Cookie, ClockInNotes)
+        VALUES (@subContractor, @employee, @number, GETDATE(), @lat, @lon, @cookie, @notes);
         SELECT SCOPE_IDENTITY() as id;
       `);
 
@@ -177,17 +176,15 @@ app.post('/api/clock-in', async (req, res) => {
 app.post('/api/clock-out', async (req, res) => {
   try {
     await poolConnect;
-    const { cookie, notes, photo } = req.body;
+    const { cookie, notes } = req.body;
 
     const result = await pool.request()
       .input('cookie', sql.NVarChar, cookie)
       .input('notes', sql.NVarChar, notes)
-      .input('photo', sql.NVarChar, photo)
       .query(`
         UPDATE TimeClock 
         SET ClockOut = GETDATE(),
-            ClockOutNotes = @notes,
-            ClockOutPhoto = @photo
+            ClockOutNotes = @notes
         WHERE Cookie = @cookie AND ClockOut IS NULL;
         
         SELECT @@ROWCOUNT as updated;

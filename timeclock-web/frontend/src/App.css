@@ -85,7 +85,7 @@ p {
 }
 
 .App-header {
-  background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+  background-color: #282c34;
   min-height: 100vh;
   display: flex;
   flex-direction: column;
@@ -95,32 +95,13 @@ p {
   color: white;
 }
 
-.app-logo {
-  width: 250px;
-  margin: 20px 0;
-  padding: 10px;
-  background-color: white;
-  border-radius: 8px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-}
-
-.app-title {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  width: 100%;
-  margin-bottom: 20px;
-}
-
 h1 {
-  margin: 15px 0;
-  font-size: 1.8rem;
+  margin-bottom: 40px;
   color: white;
-  text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.3);
 }
 
 h2 {
-  font-size: 1.3rem;
+  font-size: 1.3em;
   margin-bottom: 15px;
   color: white;
 }
@@ -128,137 +109,78 @@ h2 {
 .error-message {
   background-color: #ffebee;
   color: #d32f2f;
-  padding: 12px 15px;
+  padding: 10px 15px;
   border-radius: 4px;
   margin-bottom: 20px;
   width: 100%;
   max-width: 500px;
   text-align: center;
-  font-size: 0.9rem;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-}
-
-.success-message {
-  background-color: #e8f5e9;
-  color: #2e7d32;
-  padding: 12px 15px;
-  border-radius: 4px;
-  margin-bottom: 20px;
-  width: 100%;
-  max-width: 500px;
-  text-align: center;
-  font-size: 0.9rem;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
 .loading {
-  margin: 15px 0;
+  margin: 10px 0;
   font-style: italic;
   color: white;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.loading::after {
-  content: "";
-  width: 20px;
-  height: 20px;
-  margin-left: 10px;
-  border: 3px solid rgba(255, 255, 255, 0.3);
-  border-radius: 50%;
-  border-top-color: white;
-  animation: spin 1s ease-in-out infinite;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
 }
 
 .location-section, 
 .registration-section,
 .timeclock-section {
   background-color: rgba(255, 255, 255, 0.1);
-  border-radius: 12px;
-  padding: 25px;
-  margin-bottom: 25px;
+  border-radius: 8px;
+  padding: 20px;
+  margin-bottom: 20px;
   width: 100%;
   max-width: 500px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-  backdrop-filter: blur(5px);
-  transition: all 0.3s ease;
-}
-
-.location-section:hover, 
-.registration-section:hover,
-.timeclock-section:hover {
-  transform: translateY(-5px);
-  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
 }
 
 .location-info {
   background-color: rgba(255, 255, 255, 0.15);
-  border-radius: 8px;
-  padding: 15px;
+  border-radius: 4px;
+  padding: 10px;
   margin-top: 15px;
   text-align: left;
 }
 
 .location-info p {
-  margin: 8px 0;
+  margin: 5px 0;
   color: white;
-  font-size: 0.9rem;
 }
 
 .form-group {
-  margin-bottom: 20px;
+  margin-bottom: 15px;
   text-align: left;
 }
 
 .form-group label {
   display: block;
-  margin-bottom: 8px;
+  margin-bottom: 5px;
   font-weight: 600;
   color: white;
-  font-size: 0.9rem;
 }
 
 input, textarea {
   width: 100%;
-  padding: 12px;
+  padding: 10px;
   border: none;
-  border-radius: 6px;
+  border-radius: 4px;
   background-color: rgba(255, 255, 255, 0.9);
-  font-size: 0.9rem;
-  transition: all 0.3s ease;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-}
-
-input:focus, textarea:focus {
-  outline: none;
-  box-shadow: 0 0 0 2px #4dabf7;
-  background-color: white;
+  font-size: 0.9em;
 }
 
 textarea {
-  min-height: 100px;
+  min-height: 80px;
   resize: vertical;
 }
 
 button {
-  padding: 14px 20px;
+  padding: 12px 20px;
   border: none;
-  border-radius: 6px;
-  font-size: 1rem;
+  border-radius: 4px;
+  font-size: 1em;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.3s ease;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-}
-
-button:active {
-  transform: translateY(2px);
-  box-shadow: 0 2px 3px rgba(0, 0, 0, 0.1);
+  transition: background-color 0.3s;
 }
 
 .share-location-btn {
@@ -283,7 +205,7 @@ button:active {
 
 .clock-btn {
   width: 100%;
-  margin-top: 15px;
+  margin-top: 10px;
 }
 
 .clock-in {
@@ -298,7 +220,6 @@ button:active {
 .clock-in:disabled {
   background-color: #cccccc;
   cursor: not-allowed;
-  opacity: 0.7;
 }
 
 .clock-out {
@@ -311,66 +232,16 @@ button:active {
 }
 
 .hint {
-  font-size: 0.8rem;
+  font-size: 0.8em;
   font-style: italic;
-  margin-top: 8px;
+  margin-top: 5px;
   color: #e0e0e0;
 }
 
-.welcome-message {
-  color: #81c784;
-  font-weight: bold;
-  margin-bottom: 20px;
-  font-size: 1.2rem;
-  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.2);
-}
-
 .open-session p {
-  font-weight: 500;
+  font-weight: 600;
   margin-bottom: 15px;
   color: white;
-  background: rgba(255, 255, 255, 0.1);
-  padding: 10px;
-  border-radius: 6px;
-}
-
-.photo-preview-container {
-  margin: 15px 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-}
-
-.photo-preview {
-  max-width: 300px;
-  border-radius: 8px;
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
-  margin-bottom: 10px;
-}
-
-@media (max-width: 600px) {
-  .App-header {
-    padding: 0 15px;
-  }
-  
-  .location-section, 
-  .registration-section,
-  .timeclock-section {
-    padding: 20px;
-    margin-bottom: 20px;
-  }
-  
-  .app-logo {
-    width: 200px;
-  }
-  
-  h1 {
-    font-size: 1.5rem;
-  }
-  
-  button {
-    padding: 12px 16px;
-  }
 }
 
 body {
@@ -380,4 +251,11 @@ body {
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* User welcome message */
+.welcome-message {
+  color: #81c784;
+  font-weight: bold;
+  margin-bottom: 15px;
 } 

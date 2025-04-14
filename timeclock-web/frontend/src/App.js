@@ -1,7 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import './App.css';
-import './components/Camera.css';
-import Camera from './components/Camera';
+import { ThemeProvider } from 'styled-components';
+import theme from './theme';
+import GlobalStyles from './GlobalStyles';
+import Layout from './components/Layout';
+import LocationCard from './components/LocationCard';
+import RegistrationForm from './components/RegistrationForm';
+import TimeClockCard from './components/TimeClockCard';
 import { verifyLocation, getUserStatus, registerUser, clockIn, clockOut } from './services/api';
 
 function App() {
@@ -14,7 +18,6 @@ function App() {
   const [worksite, setWorksite] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
   
   // Registration form state
   const [subContractor, setSubContractor] = useState('');
@@ -23,12 +26,6 @@ function App() {
   
   // Clock in/out state
   const [notes, setNotes] = useState('');
-  
-  // Camera state
-  const [showCamera, setShowCamera] = useState(false);
-  const [photoPreview, setPhotoPreview] = useState(null);
-  const [photoData, setPhotoData] = useState(null);
-  const [cameraActive, setCameraActive] = useState(false);
 
   useEffect(() => {
     // Generate cookie ID if not exists
@@ -47,7 +44,6 @@ function App() {
   const checkUserStatus = async (id) => {
     try {
       setLoading(true);
-      setError('');
       const response = await getUserStatus(id);
       setIsNewUser(response.isNewUser);
       setHasOpenSession(response.hasOpenSession);
@@ -62,7 +58,6 @@ function App() {
 
   const handleShareLocation = () => {
     setError('');
-    setSuccess('');
     if (navigator.geolocation) {
       setLoading(true);
       navigator.geolocation.getCurrentPosition(
@@ -75,10 +70,9 @@ function App() {
             // Verify location with backend
             const response = await verifyLocation(lat, lon);
             setWorksite(response.customer_name || 'Unknown location');
-            setSuccess('Location verified: ' + (response.customer_name || 'Unknown location'));
             setLoading(false);
           } catch (err) {
-            setError('Location verification failed: ' + err.message);
+            setError('Location verification failed: ' + (err.message || 'Unknown error'));
             setLoading(false);
           }
         },
@@ -94,7 +88,7 @@ function App() {
   };
 
   const handleRegister = async (e) => {
-    e.preventDefault();
+    if (e) e.preventDefault();
     
     if (!subContractor || !employeeName || !phoneNumber) {
       setError('Please fill in all fields');
@@ -103,251 +97,99 @@ function App() {
     
     try {
       setLoading(true);
-      setError('');
-      setSuccess('');
       await registerUser({
         subContractor,
         employee: employeeName,
         number: phoneNumber,
         cookie: cookieId
       });
-      setSuccess('Registration successful!');
       checkUserStatus(cookieId);
     } catch (err) {
-      setError('Registration failed: ' + err.message);
+      setError('Registration failed: ' + (err.message || 'Unknown error'));
     } finally {
       setLoading(false);
     }
   };
 
-  const handleTakePhoto = (photoData) => {
-    console.log('Photo taken:', photoData);
-    setCameraActive(false);
-    setPhotoData(photoData);
-    setPhotoPreview(photoData);
-    
-    // Process the clock in/out action immediately with the captured photo
-    if (hasOpenSession) {
-      console.log('Clocking out with photo');
-      handleClockOut(photoData);
-    } else {
-      console.log('Clocking in with photo');
-      handleClockIn(photoData);
-    }
-  };
-
-  const toggleCamera = () => {
-    setCameraActive(prev => !prev);
-    
-    // If we're closing the camera, clear any photo data
-    if (cameraActive) {
-      setPhotoData(null);
-      setPhotoPreview(null);
-    }
-  };
-
-  const initiateClockIn = () => {
+  const handleClockIn = async () => {
     if (!location.lat || !location.lon) {
-      setError('Please share your location before clocking in');
+      setError('Please share your location first');
       return;
     }
-    setShowCamera(true);
-    setCameraActive(true);
-  };
-  
-  const initiateClockOut = () => {
-    setShowCamera(true);
-    setCameraActive(true);
-  };
-
-  const handleClockIn = async (photoData) => {
-    console.log('Starting clock in process with photo:', photoData);
+    
     try {
       setLoading(true);
-      setError('');
-      setSuccess('');
-      const response = await clockIn({
+      await clockIn({
         subContractor: userDetails?.SubContractor || subContractor,
         employee: userDetails?.Employee || employeeName,
         number: userDetails?.Number || phoneNumber,
         lat: location.lat,
         lon: location.lon,
         cookie: cookieId,
-        notes,
-        photo: photoData
+        notes
       });
-      console.log('Clock in response:', response);
-      setSuccess('Successfully clocked in!');
       setNotes('');
-      setPhotoData(null);
-      setPhotoPreview(null);
       checkUserStatus(cookieId);
     } catch (err) {
-      console.error('Clock in failed:', err);
-      setError('Clock in failed: ' + err.message);
+      setError('Clock in failed: ' + (err.message || 'Unknown error'));
     } finally {
       setLoading(false);
     }
   };
 
-  const handleClockOut = async (photoData) => {
+  const handleClockOut = async () => {
     try {
       setLoading(true);
-      setError('');
-      setSuccess('');
       await clockOut({
         cookie: cookieId,
-        notes,
-        photo: photoData
+        notes
       });
-      setSuccess('Successfully clocked out!');
       setNotes('');
-      setPhotoData(null);
-      setPhotoPreview(null);
       checkUserStatus(cookieId);
     } catch (err) {
-      setError('Clock out failed: ' + err.message);
+      setError('Clock out failed: ' + (err.message || 'Unknown error'));
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="App">
-      <header className="App-header">
-        <div className="app-title">
-          <img 
-            src="https://vdrs.com/wp-content/uploads/2022/08/VDRS-lockup-mod-8-19-22-350.png" 
-            alt="Van Dyk Recycling Solutions Logo" 
-            className="app-logo"
-          />
-          <h1>TimeClock Portal</h1>
-        </div>
+    <ThemeProvider theme={theme}>
+      <GlobalStyles />
+      <Layout error={error} loading={false}>
+        <LocationCard 
+          location={location}
+          worksite={worksite}
+          handleShareLocation={handleShareLocation}
+          loading={loading}
+        />
         
-        {error && <div className="error-message">{error}</div>}
-        {success && <div className="success-message">{success}</div>}
-        {loading && <div className="loading">Loading</div>}
-        
-        {showCamera && cameraActive ? (
-          <Camera 
-            onCapture={handleTakePhoto} 
-            onCancel={() => setCameraActive(false)}
+        {isNewUser ? (
+          <RegistrationForm 
+            handleRegister={handleRegister}
+            loading={loading}
+            subContractor={subContractor}
+            setSubContractor={setSubContractor}
+            employeeName={employeeName}
+            setEmployeeName={setEmployeeName}
+            phoneNumber={phoneNumber}
+            setPhoneNumber={setPhoneNumber}
           />
         ) : (
-          <>
-            <div className="location-section">
-              <h2>Your Location</h2>
-              <button onClick={handleShareLocation} className="share-location-btn">
-                {location.lat && location.lon ? 'Update Location' : 'Share Location'}
-              </button>
-              
-              {location.lat && location.lon && (
-                <div className="location-info">
-                  <p>Latitude: {location.lat.toFixed(6)}</p>
-                  <p>Longitude: {location.lon.toFixed(6)}</p>
-                  {worksite && <p>Worksite: {worksite}</p>}
-                </div>
-              )}
-            </div>
-            
-            {isNewUser ? (
-              <div className="registration-section">
-                <h2>New User Registration</h2>
-                <form onSubmit={handleRegister}>
-                  <div className="form-group">
-                    <label>Sub Contractor:</label>
-                    <input 
-                      type="text" 
-                      value={subContractor}
-                      onChange={(e) => setSubContractor(e.target.value)}
-                      placeholder="Enter subcontractor name"
-                      required
-                    />
-                  </div>
-                  
-                  <div className="form-group">
-                    <label>Your Name:</label>
-                    <input 
-                      type="text" 
-                      value={employeeName}
-                      onChange={(e) => setEmployeeName(e.target.value)}
-                      placeholder="Enter your full name"
-                      required
-                    />
-                  </div>
-                  
-                  <div className="form-group">
-                    <label>Phone Number:</label>
-                    <input 
-                      type="text" 
-                      value={phoneNumber}
-                      onChange={(e) => setPhoneNumber(e.target.value)}
-                      placeholder="Enter your phone number"
-                      required
-                    />
-                  </div>
-                  
-                  <button type="submit" className="submit-btn">Register</button>
-                </form>
-              </div>
-            ) : (
-              <div className="timeclock-section">
-                <div className="welcome-message">
-                  Welcome back, {userDetails?.Employee || employeeName}!
-                </div>
-                
-                {photoPreview && (
-                  <div className="photo-preview-container">
-                    <img src={photoPreview} alt="Captured" className="photo-preview" />
-                  </div>
-                )}
-                
-                {hasOpenSession ? (
-                  <div className="open-session">
-                    <p>You clocked in at: {new Date(openSession?.ClockIn).toLocaleString()}</p>
-                    
-                    <div className="form-group">
-                      <label>Notes:</label>
-                      <textarea
-                        value={notes}
-                        onChange={(e) => setNotes(e.target.value)}
-                        placeholder="Add notes for clock-out (optional)"
-                      />
-                    </div>
-                    
-                    <button onClick={initiateClockOut} className="clock-btn clock-out">
-                      Take Photo & Clock Out
-                    </button>
-                  </div>
-                ) : (
-                  <div className="new-session">
-                    <div className="form-group">
-                      <label>Notes:</label>
-                      <textarea
-                        value={notes}
-                        onChange={(e) => setNotes(e.target.value)}
-                        placeholder="Add notes for clock-in (optional)"
-                      />
-                    </div>
-                    
-                    <button 
-                      onClick={initiateClockIn} 
-                      className="clock-btn clock-in"
-                      disabled={!location.lat || !location.lon}
-                    >
-                      Take Photo & Clock In
-                    </button>
-                    {(!location.lat || !location.lon) && (
-                      <p className="hint">Please share your location to clock in</p>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-          </>
+          <TimeClockCard 
+            hasOpenSession={hasOpenSession}
+            openSession={openSession}
+            userDetails={userDetails}
+            handleClockIn={handleClockIn}
+            handleClockOut={handleClockOut}
+            notes={notes}
+            setNotes={setNotes}
+            loading={loading}
+            location={location}
+          />
         )}
-      </header>
-    </div>
+      </Layout>
+    </ThemeProvider>
   );
 }
 
