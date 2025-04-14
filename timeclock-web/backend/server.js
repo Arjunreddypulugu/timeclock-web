@@ -42,6 +42,7 @@ app.post('/api/verify-location', async (req, res) => {
     const { lat, lon } = req.body;
     console.log(`Checking location: lat=${lat}, lon=${lon}`);
     
+    // Special handling for negative longitude values in western hemisphere
     const result = await pool.request()
       .input('lat', sql.Float, lat)
       .input('lon', sql.Float, lon)
@@ -49,7 +50,12 @@ app.post('/api/verify-location', async (req, res) => {
         SELECT customer_name, min_latitude, max_latitude, min_longitude, max_longitude
         FROM LocationCustomerMapping
         WHERE @lat BETWEEN min_latitude AND max_latitude
-        AND @lon BETWEEN min_longitude AND max_longitude
+        AND (
+          -- Handle both possibilities for longitude storage (important for negative values)
+          (@lon BETWEEN min_longitude AND max_longitude)
+          OR 
+          (@lon BETWEEN max_longitude AND min_longitude)
+        )
       `);
     
     console.log(`Found ${result.recordset.length} matching locations`);
@@ -63,6 +69,16 @@ app.post('/api/verify-location', async (req, res) => {
         FROM LocationCustomerMapping
       `);
       console.log(`All locations: ${JSON.stringify(allLocations.recordset)}`);
+      console.log(`Current coordinates: lat=${lat}, lon=${lon}`);
+      
+      // Example coordinate check for debugging
+      allLocations.recordset.forEach(loc => {
+        const latInRange = lat >= loc.min_latitude && lat <= loc.max_latitude;
+        const lonInRange1 = lon >= loc.min_longitude && lon <= loc.max_longitude;
+        const lonInRange2 = lon >= loc.max_longitude && lon <= loc.min_longitude;
+        console.log(`${loc.customer_name}: lat in range: ${latInRange}, lon in range: ${lonInRange1 || lonInRange2}`);
+      });
+      
       res.status(404).json({ error: 'Location not found in any customer area' });
     }
   } catch (err) {
@@ -159,8 +175,15 @@ app.post('/api/clock-in', async (req, res) => {
         SELECT customer_name
         FROM LocationCustomerMapping
         WHERE @lat BETWEEN min_latitude AND max_latitude
-        AND @lon BETWEEN min_longitude AND max_longitude
+        AND (
+          -- Handle both possibilities for longitude storage (important for negative values)
+          (@lon BETWEEN min_longitude AND max_longitude)
+          OR 
+          (@lon BETWEEN max_longitude AND min_longitude)
+        )
       `);
+    
+    console.log(`Clock-in location check: lat=${lat}, lon=${lon}, found=${validLocation.recordset.length}`);
     
     if (validLocation.recordset.length === 0) {
       return res.status(400).json({ error: 'Invalid worksite location. Cannot clock in.' });
