@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TimeClock API Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+        .test-section {
+            background-color: #f5f5f5;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+        .test-section h2 {
+            margin-top: 0;
+            color: #444;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        input, textarea {
+            display: block;
+            width: 100%;
+            padding: 8px;
+            margin: 8px 0;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        .result {
+            background-color: #e8f5e9;
+            border-radius: 4px;
+            padding: 10px;
+            margin-top: 10px;
+            min-height: 20px;
+            white-space: pre-wrap;
+            font-family: monospace;
+        }
+        .error {
+            background-color: #ffebee;
+        }
+        label {
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <h1>TimeClock API Test</h1>
+    
+    <div class="test-section">
+        <h2>1. Verify Location</h2>
+        <label>Latitude:</label>
+        <input type="text" id="lat" value="40.7128">
+        <label>Longitude:</label>
+        <input type="text" id="lon" value="-74.0060">
+        <button onclick="verifyLocation()">Test Verify Location</button>
+        <div class="result" id="location-result"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>2. User Status</h2>
+        <label>Cookie ID:</label>
+        <input type="text" id="status-cookie" value="test-cookie">
+        <button onclick="checkUserStatus()">Check User Status</button>
+        <div class="result" id="status-result"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>3. Register User</h2>
+        <label>Sub Contractor:</label>
+        <input type="text" id="reg-subcontractor" value="Test Sub">
+        <label>Employee Name:</label>
+        <input type="text" id="reg-employee" value="John Doe">
+        <label>Number:</label>
+        <input type="text" id="reg-number" value="12345">
+        <label>Cookie ID:</label>
+        <input type="text" id="reg-cookie" value="test-cookie">
+        <button onclick="registerUser()">Register User</button>
+        <div class="result" id="register-result"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>4. Clock In</h2>
+        <label>Sub Contractor:</label>
+        <input type="text" id="ci-subcontractor" value="Test Sub">
+        <label>Employee Name:</label>
+        <input type="text" id="ci-employee" value="John Doe">
+        <label>Number:</label>
+        <input type="text" id="ci-number" value="12345">
+        <label>Latitude:</label>
+        <input type="text" id="ci-lat" value="40.7128">
+        <label>Longitude:</label>
+        <input type="text" id="ci-lon" value="-74.0060">
+        <label>Cookie ID:</label>
+        <input type="text" id="ci-cookie" value="test-cookie">
+        <label>Notes:</label>
+        <textarea id="ci-notes">Test clock in</textarea>
+        <button onclick="clockIn()">Clock In</button>
+        <div class="result" id="clockin-result"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>5. Clock Out</h2>
+        <label>Cookie ID:</label>
+        <input type="text" id="co-cookie" value="test-cookie">
+        <label>Notes:</label>
+        <textarea id="co-notes">Test clock out</textarea>
+        <button onclick="clockOut()">Clock Out</button>
+        <div class="result" id="clockout-result"></div>
+    </div>
+
+    <script>
+        const API_URL = 'http://localhost:5000/api';
+
+        // Generate a test cookie if none exists
+        if (!localStorage.getItem('testCookie')) {
+            localStorage.setItem('testCookie', 'test-cookie-' + Date.now());
+        }
+        
+        // Pre-fill cookie fields with the generated cookie
+        document.addEventListener('DOMContentLoaded', () => {
+            const testCookie = localStorage.getItem('testCookie');
+            document.getElementById('status-cookie').value = testCookie;
+            document.getElementById('reg-cookie').value = testCookie;
+            document.getElementById('ci-cookie').value = testCookie;
+            document.getElementById('co-cookie').value = testCookie;
+        });
+
+        function showResult(elementId, data, isError = false) {
+            const element = document.getElementById(elementId);
+            element.textContent = typeof data === 'object' ? JSON.stringify(data, null, 2) : data;
+            if (isError) {
+                element.classList.add('error');
+            } else {
+                element.classList.remove('error');
+            }
+        }
+
+        async function makeRequest(endpoint, method, body = null) {
+            try {
+                const options = {
+                    method,
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                };
+                
+                if (body) {
+                    options.body = JSON.stringify(body);
+                }
+                
+                const response = await fetch(`${API_URL}/${endpoint}`, options);
+                const data = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(data.error || 'Unknown error occurred');
+                }
+                
+                return data;
+            } catch (error) {
+                throw error;
+            }
+        }
+
+        async function verifyLocation() {
+            try {
+                const lat = parseFloat(document.getElementById('lat').value);
+                const lon = parseFloat(document.getElementById('lon').value);
+                
+                const data = await makeRequest('verify-location', 'POST', { lat, lon });
+                showResult('location-result', data);
+            } catch (error) {
+                showResult('location-result', `Error: ${error.message}`, true);
+            }
+        }
+
+        async function checkUserStatus() {
+            try {
+                const cookie = document.getElementById('status-cookie').value;
+                
+                const data = await makeRequest(`user-status?cookie=${cookie}`, 'GET');
+                showResult('status-result', data);
+            } catch (error) {
+                showResult('status-result', `Error: ${error.message}`, true);
+            }
+        }
+
+        async function registerUser() {
+            try {
+                const userData = {
+                    subContractor: document.getElementById('reg-subcontractor').value,
+                    employee: document.getElementById('reg-employee').value,
+                    number: document.getElementById('reg-number').value,
+                    cookie: document.getElementById('reg-cookie').value
+                };
+                
+                const data = await makeRequest('register', 'POST', userData);
+                showResult('register-result', data);
+            } catch (error) {
+                showResult('register-result', `Error: ${error.message}`, true);
+            }
+        }
+
+        async function clockIn() {
+            try {
+                const clockInData = {
+                    subContractor: document.getElementById('ci-subcontractor').value,
+                    employee: document.getElementById('ci-employee').value,
+                    number: document.getElementById('ci-number').value,
+                    lat: parseFloat(document.getElementById('ci-lat').value),
+                    lon: parseFloat(document.getElementById('ci-lon').value),
+                    cookie: document.getElementById('ci-cookie').value,
+                    notes: document.getElementById('ci-notes').value
+                };
+                
+                const data = await makeRequest('clock-in', 'POST', clockInData);
+                showResult('clockin-result', data);
+            } catch (error) {
+                showResult('clockin-result', `Error: ${error.message}`, true);
+            }
+        }
+
+        async function clockOut() {
+            try {
+                const clockOutData = {
+                    cookie: document.getElementById('co-cookie').value,
+                    notes: document.getElementById('co-notes').value
+                };
+                
+                const data = await makeRequest('clock-out', 'POST', clockOutData);
+                showResult('clockout-result', data);
+            } catch (error) {
+                showResult('clockout-result', `Error: ${error.message}`, true);
+            }
+        }
+    </script>
+</body>
+</html> 

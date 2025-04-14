@@ -1,0 +1,41 @@
+name: Deploy TimeClock Web
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v2
+        
+      - name: Set up Node.js
+        uses: actions/setup-node@v2
+        with:
+          node-version: '18'
+          
+      - name: Install Backend Dependencies
+        run: |
+          cd timeclock-web/backend
+          npm install
+          
+      - name: Install Frontend Dependencies
+        run: |
+          cd timeclock-web/frontend
+          npm install
+          
+      - name: Build Frontend
+        run: |
+          cd timeclock-web/frontend
+          npm run build
+          
+      # If deploying to Azure, uncomment and configure:
+      # - name: Deploy to Azure
+      #   uses: azure/webapps-deploy@v2
+      #   with:
+      #     app-name: 'your-app-name'
+      #     publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+      #     package: . 
