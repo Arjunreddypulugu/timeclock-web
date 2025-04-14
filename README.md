@@ -10,6 +10,7 @@ A web-based time clock system for tracking employee work hours. The application 
 - Clock in/out with timestamps
 - Session tracking
 - Note-taking for each clock event
+- Worksite detection based on GPS coordinates
 
 ## Tech Stack
 
