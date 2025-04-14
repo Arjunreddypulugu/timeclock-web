@@ -47,7 +47,7 @@ export const clockIn = async (clockInData) => {
   try {
     // If photo is too large, compress it further
     if (clockInData.photo && clockInData.photo.length > 1000000) {
-      clockInData.photo = compressImage(clockInData.photo);
+      clockInData.photo = await compressImage(clockInData.photo);
     }
     
     const response = await fetch(`${API_URL}/clock-in`, {
@@ -68,7 +68,7 @@ export const clockOut = async (clockOutData) => {
   try {
     // If photo is too large, compress it further
     if (clockOutData.photo && clockOutData.photo.length > 1000000) {
-      clockOutData.photo = compressImage(clockOutData.photo);
+      clockOutData.photo = await compressImage(clockOutData.photo);
     }
     
     const response = await fetch(`${API_URL}/clock-out`, {
@@ -97,36 +97,43 @@ export const getTimeEntries = async (employeeId) => {
 
 // Helper function to compress images further if needed
 function compressImage(base64Image) {
-  // Create a temporary canvas
-  const canvas = document.createElement('canvas');
-  const img = new Image();
-  img.src = base64Image;
-  
-  // Reduce image dimensions
-  const maxWidth = 800;
-  const maxHeight = 600;
-  let width = img.width;
-  let height = img.height;
-  
-  if (width > height) {
-    if (width > maxWidth) {
-      height *= maxWidth / width;
-      width = maxWidth;
-    }
-  } else {
-    if (height > maxHeight) {
-      width *= maxHeight / height;
-      height = maxHeight;
-    }
-  }
-  
-  canvas.width = width;
-  canvas.height = height;
-  
-  // Draw the image at the reduced size
-  const ctx = canvas.getContext('2d');
-  ctx.drawImage(img, 0, 0, width, height);
-  
-  // Return compressed image
-  return canvas.toDataURL('image/jpeg', 0.5); // Reduce quality to 50%
+  return new Promise((resolve) => {
+    // Create a temporary canvas and image
+    const canvas = document.createElement('canvas');
+    const img = new Image();
+    
+    // Set up image onload handler
+    img.onload = () => {
+      // Reduce image dimensions
+      const maxWidth = 800;
+      const maxHeight = 600;
+      let width = img.width;
+      let height = img.height;
+      
+      if (width > height) {
+        if (width > maxWidth) {
+          height *= maxWidth / width;
+          width = maxWidth;
+        }
+      } else {
+        if (height > maxHeight) {
+          width *= maxHeight / height;
+          height = maxHeight;
+        }
+      }
+      
+      canvas.width = width;
+      canvas.height = height;
+      
+      // Draw the image at the reduced size
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, width, height);
+      
+      // Return compressed image with better quality reduction
+      resolve(canvas.toDataURL('image/jpeg', 0.7));
+    };
+    
+    // Set image source to trigger loading
+    img.src = base64Image;
+  });
 } 

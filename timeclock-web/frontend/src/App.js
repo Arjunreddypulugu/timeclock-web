@@ -125,17 +125,31 @@ function App() {
     setPhotoPreview(photoData);
     setShowCamera(false);
     
-    // Proceed with clock in/out if photo was for a specific action
-    if (cameraAction === 'clockIn') {
-      performClockIn(photoData);
-    } else if (cameraAction === 'clockOut') {
-      performClockOut(photoData);
-    }
+    // Show processing message
+    setLoading(true);
+    setSuccess('Processing photo...');
+    
+    // Use setTimeout to ensure UI updates before heavy processing
+    setTimeout(() => {
+      // Proceed with clock in/out if photo was for a specific action
+      if (cameraAction === 'clockIn') {
+        performClockIn(photoData);
+      } else if (cameraAction === 'clockOut') {
+        performClockOut(photoData);
+      } else {
+        setLoading(false);
+        setSuccess('Photo captured successfully!');
+      }
+      
+      // Reset camera action after processing
+      setCameraAction(null);
+    }, 100);
   };
 
   const handleCancelPhoto = () => {
     setShowCamera(false);
     setCameraAction(null);
+    setError(''); // Clear any errors when canceling
   };
 
   const initiateClockIn = () => {
@@ -144,12 +158,16 @@ function App() {
       return;
     }
     
+    setSuccess('');  // Clear any success messages
+    setError('');    // Clear any error messages
     setCameraAction('clockIn');
     setShowCamera(true);
     setPhotoPreview(null);
   };
   
   const initiateClockOut = () => {
+    setSuccess('');  // Clear any success messages
+    setError('');    // Clear any error messages
     setCameraAction('clockOut');
     setShowCamera(true);
     setPhotoPreview(null);
@@ -159,7 +177,6 @@ function App() {
     try {
       setLoading(true);
       setError('');
-      setSuccess('');
       await clockIn({
         subContractor: userDetails?.SubContractor || subContractor,
         employee: userDetails?.Employee || employeeName,
@@ -175,7 +192,9 @@ function App() {
       setPhoto(null);
       checkUserStatus(cookieId);
     } catch (err) {
-      setError('Clock in failed: ' + err.message);
+      console.error('Clock in failed:', err);
+      setError('Clock in failed: ' + (err.message || 'Unknown error'));
+      setPhotoPreview(null); // Clear photo preview on error
     } finally {
       setLoading(false);
     }
@@ -185,7 +204,6 @@ function App() {
     try {
       setLoading(true);
       setError('');
-      setSuccess('');
       await clockOut({
         cookie: cookieId,
         notes,
@@ -196,7 +214,9 @@ function App() {
       setPhoto(null);
       checkUserStatus(cookieId);
     } catch (err) {
-      setError('Clock out failed: ' + err.message);
+      console.error('Clock out failed:', err);
+      setError('Clock out failed: ' + (err.message || 'Unknown error'));
+      setPhotoPreview(null); // Clear photo preview on error
     } finally {
       setLoading(false);
     }

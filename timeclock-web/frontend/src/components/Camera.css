@@ -8,6 +8,9 @@
   border-radius: 10px;
   padding: 15px;
   margin: 0 auto 20px;
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3);
+  position: relative;
+  z-index: 100;
 }
 
 .video-container {
@@ -17,12 +20,15 @@
   border-radius: 8px;
   background-color: #000;
   margin-bottom: 15px;
+  aspect-ratio: 4/3;
 }
 
 .camera-video {
   width: 100%;
-  height: auto;
+  height: 100%;
   transform: scaleX(-1); /* Mirror the video */
+  object-fit: cover;
+  border-radius: 8px;
 }
 
 .camera-overlay {
@@ -48,18 +54,20 @@
   display: flex;
   justify-content: space-between;
   width: 100%;
+  margin-top: 10px;
 }
 
 .capture-btn, .start-btn {
   background-color: #4CAF50;
   color: white;
-  padding: 10px 15px;
+  padding: 12px 15px;
   border: none;
   border-radius: 5px;
   cursor: pointer;
   font-weight: bold;
   flex: 1;
   margin-right: 10px;
+  font-size: 1rem;
 }
 
 .capture-btn:hover, .start-btn:hover {
@@ -69,13 +77,14 @@
 .cancel-btn {
   background-color: #f44336;
   color: white;
-  padding: 10px 15px;
+  padding: 12px 15px;
   border: none;
   border-radius: 5px;
   cursor: pointer;
   font-weight: bold;
   flex: 1;
   margin-left: 10px;
+  font-size: 1rem;
 }
 
 .cancel-btn:hover {
@@ -90,8 +99,70 @@
   margin-bottom: 15px;
 }
 
+/* Camera placeholder for when video is not active */
+.camera-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background-color: #1a1a1a;
+  border-radius: 8px;
+}
+
+.camera-start-prompt, .permission-denied {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  color: white;
+  text-align: center;
+  padding: 20px;
+}
+
+.camera-start-prompt span, .permission-denied span {
+  font-size: 3rem;
+  margin-bottom: 10px;
+}
+
+.permission-denied {
+  color: #ff5555;
+}
+
+.permission-denied span {
+  position: relative;
+}
+
+.permission-denied span::after {
+  content: '❌';
+  position: absolute;
+  font-size: 1.5rem;
+  bottom: 0;
+  right: -10px;
+}
+
+/* Camera access message */
+.camera-message {
+  color: white;
+  background-color: rgba(33, 150, 243, 0.8);
+  padding: 10px;
+  border-radius: 5px;
+  margin-bottom: 10px;
+  font-size: 0.9rem;
+  text-align: center;
+  width: 100%;
+}
+
+.error-message {
+  background-color: rgba(244, 67, 54, 0.8);
+}
+
 @media (max-width: 600px) {
   .camera-container {
     width: 95%;
+  }
+  
+  .face-guide {
+    width: 160px;
+    height: 160px;
   }
 } 
