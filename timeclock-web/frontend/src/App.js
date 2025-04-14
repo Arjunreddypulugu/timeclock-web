@@ -151,7 +151,9 @@ function App() {
     
     try {
       setLoading(true);
-      await clockIn({
+      console.log('Starting clock-in process...');
+      
+      const clockInData = {
         subContractor: userDetails?.SubContractor || subContractor,
         employee: userDetails?.Employee || employeeName,
         number: userDetails?.Number || phoneNumber,
@@ -160,12 +162,24 @@ function App() {
         cookie: cookieId,
         notes,
         image: clockInImage
-      });
-      setNotes('');
-      setClockInImage('');
-      setShowCamera(false);
-      checkUserStatus(cookieId);
+      };
+      
+      console.log(`Sending clock-in data for ${clockInData.employee} at location ${location.lat},${location.lon}`);
+      
+      const response = await clockIn(clockInData);
+      console.log('Clock-in response:', response);
+      
+      if (response.id) {
+        setNotes('');
+        setClockInImage('');
+        setShowCamera(false);
+        console.log('Successfully clocked in with ID:', response.id);
+        checkUserStatus(cookieId);
+      } else if (response.error) {
+        setError('Clock in failed: ' + response.error);
+      }
     } catch (err) {
+      console.error('Clock in error:', err);
       setError('Clock in failed: ' + (err.message || 'Unknown error'));
     } finally {
       setLoading(false);
@@ -186,16 +200,30 @@ function App() {
     
     try {
       setLoading(true);
-      await clockOut({
+      console.log('Starting clock-out process...');
+      
+      const clockOutData = {
         cookie: cookieId,
         notes,
         image: clockOutImage
-      });
-      setNotes('');
-      setClockOutImage('');
-      setShowCamera(false);
-      checkUserStatus(cookieId);
+      };
+      
+      console.log(`Sending clock-out data for cookie ${cookieId}`);
+      
+      const response = await clockOut(clockOutData);
+      console.log('Clock-out response:', response);
+      
+      if (response.success) {
+        setNotes('');
+        setClockOutImage('');
+        setShowCamera(false);
+        console.log('Successfully clocked out');
+        checkUserStatus(cookieId);
+      } else if (response.error) {
+        setError('Clock out failed: ' + response.error);
+      }
     } catch (err) {
+      console.error('Clock out error:', err);
       setError('Clock out failed: ' + (err.message || 'Unknown error'));
     } finally {
       setLoading(false);

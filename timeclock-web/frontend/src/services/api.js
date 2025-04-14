@@ -45,6 +45,8 @@ export const registerUser = async (userData) => {
 
 export const clockIn = async (clockInData) => {
   try {
+    console.log('API clockIn called with data:', {...clockInData, image: '(image data omitted)'});
+    
     const response = await fetch(`${API_URL}/clock-in`, {
       method: 'POST',
       headers: {
@@ -52,15 +54,25 @@ export const clockIn = async (clockInData) => {
       },
       body: JSON.stringify(clockInData),
     });
-    return await response.json();
+    
+    const data = await response.json();
+    console.log('API clockIn response:', data);
+    
+    if (!response.ok) {
+      throw new Error(data.error || `Server error: ${response.status}`);
+    }
+    
+    return data;
   } catch (error) {
-    console.error('Clock in error:', error);
+    console.error('Clock in API error:', error);
     throw error;
   }
 };
 
 export const clockOut = async (clockOutData) => {
   try {
+    console.log('API clockOut called with data:', {...clockOutData, image: '(image data omitted)'});
+    
     const response = await fetch(`${API_URL}/clock-out`, {
       method: 'POST',
       headers: {
@@ -68,9 +80,17 @@ export const clockOut = async (clockOutData) => {
       },
       body: JSON.stringify(clockOutData),
     });
-    return await response.json();
+    
+    const data = await response.json();
+    console.log('API clockOut response:', data);
+    
+    if (!response.ok) {
+      throw new Error(data.error || `Server error: ${response.status}`);
+    }
+    
+    return data;
   } catch (error) {
-    console.error('Clock out error:', error);
+    console.error('Clock out API error:', error);
     throw error;
   }
 };
@@ -81,6 +101,28 @@ export const getTimeEntries = async (employeeId) => {
     return await response.json();
   } catch (error) {
     console.error('Get time entries error:', error);
+    throw error;
+  }
+};
+
+export const testImageUpload = async (imageData) => {
+  try {
+    console.log('Testing image upload...');
+    
+    const response = await fetch(`${API_URL}/test-image`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ image: imageData }),
+    });
+    
+    const data = await response.json();
+    console.log('Test image response:', data);
+    
+    return data;
+  } catch (error) {
+    console.error('Test image error:', error);
     throw error;
   }
 }; 
