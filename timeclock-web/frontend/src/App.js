@@ -117,6 +117,11 @@ function App() {
       return;
     }
     
+    if (!worksite || worksite === 'Unknown location') {
+      setError('You must be at a valid worksite to clock in');
+      return;
+    }
+    
     try {
       setLoading(true);
       await clockIn({
@@ -186,6 +191,7 @@ function App() {
             setNotes={setNotes}
             loading={loading}
             location={location}
+            worksite={worksite}
           />
         )}
       </Layout>

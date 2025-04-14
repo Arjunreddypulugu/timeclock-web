@@ -40,22 +40,33 @@ app.post('/api/verify-location', async (req, res) => {
   try {
     await poolConnect;
     const { lat, lon } = req.body;
+    console.log(`Checking location: lat=${lat}, lon=${lon}`);
+    
     const result = await pool.request()
       .input('lat', sql.Float, lat)
       .input('lon', sql.Float, lon)
       .query(`
-        SELECT customer_name
+        SELECT customer_name, min_latitude, max_latitude, min_longitude, max_longitude
         FROM LocationCustomerMapping
         WHERE @lat BETWEEN min_latitude AND max_latitude
         AND @lon BETWEEN min_longitude AND max_longitude
       `);
     
+    console.log(`Found ${result.recordset.length} matching locations`);
     if (result.recordset.length > 0) {
+      console.log(`Matched location: ${JSON.stringify(result.recordset[0])}`);
       res.json({ customer_name: result.recordset[0].customer_name });
     } else {
+      // Get all location boundaries for debugging
+      const allLocations = await pool.request().query(`
+        SELECT customer_name, min_latitude, max_latitude, min_longitude, max_longitude
+        FROM LocationCustomerMapping
+      `);
+      console.log(`All locations: ${JSON.stringify(allLocations.recordset)}`);
       res.status(404).json({ error: 'Location not found in any customer area' });
     }
   } catch (err) {
+    console.error(`Location verification error: ${err.message}`);
     res.status(500).json({ error: err.message });
   }
 });
