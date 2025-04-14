@@ -92,7 +92,8 @@ const Worksite = styled.div`
 
 const LocationCard = ({ 
   location, 
-  customerName, 
+  customerName,
+  subContractor, 
   handleShareLocation,
   loading 
 }) => {
@@ -124,6 +125,12 @@ const LocationCard = ({
           {customerName && (
             <Worksite>
               Worksite: {customerName}
+            </Worksite>
+          )}
+          
+          {subContractor && (
+            <Worksite style={{ marginTop: '8px', backgroundColor: '#4a6fa5' }}>
+              Subcontractor: {subContractor}
             </Worksite>
           )}
         </LocationInfo>

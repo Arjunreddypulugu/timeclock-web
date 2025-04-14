@@ -10,6 +10,9 @@ import Camera from './components/Camera';
 import Button from './components/Button';
 import { verifyLocation, getUserStatus, registerUser, clockIn, clockOut } from './services/api';
 
+// Add this constant at the top, outside of the function to prevent access without proper link
+const ACCESS_RESTRICTED = true;
+
 function App() {
   const [cookieId, setCookieId] = useState('');
   const [isNewUser, setIsNewUser] = useState(true);
@@ -20,6 +23,7 @@ function App() {
   const [customerName, setCustomerName] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [redirectToHome, setRedirectToHome] = useState(false);
   
   // Registration form state
   const [subContractor, setSubContractor] = useState('');
@@ -48,7 +52,16 @@ function App() {
         console.log('Auto-filled subcontractor:', decodedSubcontractor);
       } catch (err) {
         console.error('Error decoding subcontractor parameter:', err);
+        if (ACCESS_RESTRICTED) {
+          setError('Invalid access link. Please use a valid subcontractor link.');
+          setRedirectToHome(true);
+          return;
+        }
       }
+    } else if (ACCESS_RESTRICTED) {
+      setError('Access restricted. Please use a proper subcontractor link to access this application.');
+      setRedirectToHome(true);
+      return;
     }
     
     // Generate cookie ID if not exists
@@ -255,6 +268,22 @@ function App() {
     }
   };
 
+  // If access is restricted and no valid subcontractor parameter, show an error
+  if (redirectToHome) {
+    return (
+      <ThemeProvider theme={theme}>
+        <GlobalStyles />
+        <Layout error={error} loading={false}>
+          <div style={{ textAlign: 'center', padding: '2rem' }}>
+            <h2>Access Restricted</h2>
+            <p>{error}</p>
+            <p>Please contact your supervisor for the correct link.</p>
+          </div>
+        </Layout>
+      </ThemeProvider>
+    );
+  }
+
   return (
     <ThemeProvider theme={theme}>
       <GlobalStyles />
@@ -290,6 +319,7 @@ function App() {
             <LocationCard 
               location={location}
               customerName={customerName}
+              subContractor={subContractor}
               handleShareLocation={handleShareLocation}
               loading={loading}
             />
@@ -317,6 +347,7 @@ function App() {
                 loading={loading}
                 location={location}
                 customerName={customerName}
+                subContractor={subContractor}
               />
             )}
           </>

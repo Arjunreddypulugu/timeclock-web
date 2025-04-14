@@ -77,7 +77,8 @@ const TimeClockCard = ({
   setNotes,
   loading,
   location,
-  customerName
+  customerName,
+  subContractor
 }) => {
   const formatTimestamp = (timestamp) => {
     if (!timestamp) return '';
@@ -103,6 +104,7 @@ const TimeClockCard = ({
           <>
             <ClockInfo>
               <p>You clocked in at: <span>{formatTimestamp(openSession?.ClockIn)}</span></p>
+              {subContractor && <p>Subcontractor: <span>{subContractor}</span></p>}
             </ClockInfo>
             
             <TextArea
