@@ -121,14 +121,17 @@ function App() {
   };
 
   const handleTakePhoto = (photoData) => {
+    console.log('Photo taken:', photoData);
     setCameraActive(false);
     setPhotoData(photoData);
     setPhotoPreview(photoData);
     
     // Process the clock in/out action immediately with the captured photo
     if (hasOpenSession) {
+      console.log('Clocking out with photo');
       handleClockOut(photoData);
     } else {
+      console.log('Clocking in with photo');
       handleClockIn(photoData);
     }
   };
@@ -158,11 +161,12 @@ function App() {
   };
 
   const handleClockIn = async (photoData) => {
+    console.log('Starting clock in process with photo:', photoData);
     try {
       setLoading(true);
       setError('');
       setSuccess('');
-      await clockIn({
+      const response = await clockIn({
         subContractor: userDetails?.SubContractor || subContractor,
         employee: userDetails?.Employee || employeeName,
         number: userDetails?.Number || phoneNumber,
@@ -172,12 +176,14 @@ function App() {
         notes,
         photo: photoData
       });
+      console.log('Clock in response:', response);
       setSuccess('Successfully clocked in!');
       setNotes('');
       setPhotoData(null);
       setPhotoPreview(null);
       checkUserStatus(cookieId);
     } catch (err) {
+      console.error('Clock in failed:', err);
       setError('Clock in failed: ' + err.message);
     } finally {
       setLoading(false);
