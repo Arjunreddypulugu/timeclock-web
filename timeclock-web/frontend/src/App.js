@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import './App.css';
+import './components/Camera.css';
+import Camera from './components/Camera';
 import { verifyLocation, getUserStatus, registerUser, clockIn, clockOut } from './services/api';
 
 function App() {
@@ -20,6 +22,11 @@ function App() {
   
   // Clock in/out state
   const [notes, setNotes] = useState('');
+  
+  // Camera state
+  const [showCamera, setShowCamera] = useState(false);
+  const [photo, setPhoto] = useState(null);
+  const [cameraAction, setCameraAction] = useState(null); // 'clockIn' or 'clockOut'
 
   useEffect(() => {
     // Generate cookie ID if not exists
@@ -105,12 +112,39 @@ function App() {
     }
   };
 
-  const handleClockIn = async () => {
+  const handleCapturePhoto = (photoData) => {
+    setPhoto(photoData);
+    setShowCamera(false);
+    
+    // Proceed with clock in/out if photo was for a specific action
+    if (cameraAction === 'clockIn') {
+      performClockIn(photoData);
+    } else if (cameraAction === 'clockOut') {
+      performClockOut(photoData);
+    }
+  };
+
+  const handleCancelPhoto = () => {
+    setShowCamera(false);
+    setCameraAction(null);
+  };
+
+  const initiateClockIn = () => {
     if (!location.lat || !location.lon) {
       setError('Please share your location first');
       return;
     }
     
+    setCameraAction('clockIn');
+    setShowCamera(true);
+  };
+  
+  const initiateClockOut = () => {
+    setCameraAction('clockOut');
+    setShowCamera(true);
+  };
+
+  const performClockIn = async (photoData) => {
     try {
       setLoading(true);
       await clockIn({
@@ -120,9 +154,11 @@ function App() {
         lat: location.lat,
         lon: location.lon,
         cookie: cookieId,
-        notes
+        notes,
+        photo: photoData
       });
       setNotes('');
+      setPhoto(null);
       checkUserStatus(cookieId);
     } catch (err) {
       setError('Clock in failed: ' + err.message);
@@ -131,14 +167,16 @@ function App() {
     }
   };
 
-  const handleClockOut = async () => {
+  const performClockOut = async (photoData) => {
     try {
       setLoading(true);
       await clockOut({
         cookie: cookieId,
-        notes
+        notes,
+        photo: photoData
       });
       setNotes('');
+      setPhoto(null);
       checkUserStatus(cookieId);
     } catch (err) {
       setError('Clock out failed: ' + err.message);
@@ -155,105 +193,114 @@ function App() {
         {error && <div className="error-message">{error}</div>}
         {loading && <div className="loading">Loading...</div>}
         
-        <div className="location-section">
-          <h2>Your Location</h2>
-          <button onClick={handleShareLocation} className="share-location-btn">
-            Share Location
-          </button>
-          
-          {location.lat && location.lon && (
-            <div className="location-info">
-              <p>Latitude: {location.lat.toFixed(6)}</p>
-              <p>Longitude: {location.lon.toFixed(6)}</p>
-              {worksite && <p>Worksite: {worksite}</p>}
-            </div>
-          )}
-        </div>
-        
-        {isNewUser ? (
-          <div className="registration-section">
-            <h2>New User Registration</h2>
-            <form onSubmit={handleRegister}>
-              <div className="form-group">
-                <label>Sub Contractor:</label>
-                <input 
-                  type="text" 
-                  value={subContractor}
-                  onChange={(e) => setSubContractor(e.target.value)}
-                  required
-                />
-              </div>
-              
-              <div className="form-group">
-                <label>Your Name:</label>
-                <input 
-                  type="text" 
-                  value={employeeName}
-                  onChange={(e) => setEmployeeName(e.target.value)}
-                  required
-                />
-              </div>
-              
-              <div className="form-group">
-                <label>Phone Number:</label>
-                <input 
-                  type="text" 
-                  value={phoneNumber}
-                  onChange={(e) => setPhoneNumber(e.target.value)}
-                  required
-                />
-              </div>
-              
-              <button type="submit" className="submit-btn">Register</button>
-            </form>
-          </div>
+        {showCamera ? (
+          <Camera 
+            onCapture={handleCapturePhoto} 
+            onCancel={handleCancelPhoto}
+          />
         ) : (
-          <div className="timeclock-section">
-            <div className="welcome-message">
-              Welcome back, {userDetails?.Employee || employeeName}!
+          <>
+            <div className="location-section">
+              <h2>Your Location</h2>
+              <button onClick={handleShareLocation} className="share-location-btn">
+                Share Location
+              </button>
+              
+              {location.lat && location.lon && (
+                <div className="location-info">
+                  <p>Latitude: {location.lat.toFixed(6)}</p>
+                  <p>Longitude: {location.lon.toFixed(6)}</p>
+                  {worksite && <p>Worksite: {worksite}</p>}
+                </div>
+              )}
             </div>
             
-            {hasOpenSession ? (
-              <div className="open-session">
-                <p>You clocked in at: {new Date(openSession?.ClockIn).toLocaleString()}</p>
-                
-                <div className="form-group">
-                  <label>Notes:</label>
-                  <textarea
-                    value={notes}
-                    onChange={(e) => setNotes(e.target.value)}
-                    placeholder="Add notes for clock-out"
-                  />
-                </div>
-                
-                <button onClick={handleClockOut} className="clock-btn clock-out">
-                  Clock Out
-                </button>
+            {isNewUser ? (
+              <div className="registration-section">
+                <h2>New User Registration</h2>
+                <form onSubmit={handleRegister}>
+                  <div className="form-group">
+                    <label>Sub Contractor:</label>
+                    <input 
+                      type="text" 
+                      value={subContractor}
+                      onChange={(e) => setSubContractor(e.target.value)}
+                      required
+                    />
+                  </div>
+                  
+                  <div className="form-group">
+                    <label>Your Name:</label>
+                    <input 
+                      type="text" 
+                      value={employeeName}
+                      onChange={(e) => setEmployeeName(e.target.value)}
+                      required
+                    />
+                  </div>
+                  
+                  <div className="form-group">
+                    <label>Phone Number:</label>
+                    <input 
+                      type="text" 
+                      value={phoneNumber}
+                      onChange={(e) => setPhoneNumber(e.target.value)}
+                      required
+                    />
+                  </div>
+                  
+                  <button type="submit" className="submit-btn">Register</button>
+                </form>
               </div>
             ) : (
-              <div className="new-session">
-                <div className="form-group">
-                  <label>Notes:</label>
-                  <textarea
-                    value={notes}
-                    onChange={(e) => setNotes(e.target.value)}
-                    placeholder="Add notes for clock-in"
-                  />
+              <div className="timeclock-section">
+                <div className="welcome-message">
+                  Welcome back, {userDetails?.Employee || employeeName}!
                 </div>
                 
-                <button 
-                  onClick={handleClockIn} 
-                  className="clock-btn clock-in"
-                  disabled={!location.lat || !location.lon}
-                >
-                  Clock In
-                </button>
-                {(!location.lat || !location.lon) && (
-                  <p className="hint">Please share your location to clock in</p>
+                {hasOpenSession ? (
+                  <div className="open-session">
+                    <p>You clocked in at: {new Date(openSession?.ClockIn).toLocaleString()}</p>
+                    
+                    <div className="form-group">
+                      <label>Notes:</label>
+                      <textarea
+                        value={notes}
+                        onChange={(e) => setNotes(e.target.value)}
+                        placeholder="Add notes for clock-out"
+                      />
+                    </div>
+                    
+                    <button onClick={initiateClockOut} className="clock-btn clock-out">
+                      Take Photo & Clock Out
+                    </button>
+                  </div>
+                ) : (
+                  <div className="new-session">
+                    <div className="form-group">
+                      <label>Notes:</label>
+                      <textarea
+                        value={notes}
+                        onChange={(e) => setNotes(e.target.value)}
+                        placeholder="Add notes for clock-in"
+                      />
+                    </div>
+                    
+                    <button 
+                      onClick={initiateClockIn} 
+                      className="clock-btn clock-in"
+                      disabled={!location.lat || !location.lon}
+                    >
+                      Take Photo & Clock In
+                    </button>
+                    {(!location.lat || !location.lon) && (
+                      <p className="hint">Please share your location to clock in</p>
+                    )}
+                  </div>
                 )}
               </div>
             )}
-          </div>
+          </>
         )}
       </header>
     </div>

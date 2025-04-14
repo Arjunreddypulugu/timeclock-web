@@ -68,6 +68,8 @@ BEGIN
         [AutoFlag] BIT DEFAULT 0,
         [HoursWorked] FLOAT NULL,
         [ClockInNotes] NVARCHAR(MAX) NULL,
-        [ClockOutNotes] NVARCHAR(MAX) NULL
+        [ClockOutNotes] NVARCHAR(MAX) NULL,
+        [ClockInPhoto] NVARCHAR(MAX) NULL,
+        [ClockOutPhoto] NVARCHAR(MAX) NULL
     )
 END 
