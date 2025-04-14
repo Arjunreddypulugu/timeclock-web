@@ -26,9 +26,9 @@ function App() {
   
   // Camera state
   const [showCamera, setShowCamera] = useState(false);
-  const [photo, setPhoto] = useState(null);
   const [photoPreview, setPhotoPreview] = useState(null);
-  const [cameraAction, setCameraAction] = useState(null); // 'clockIn' or 'clockOut'
+  const [photoData, setPhotoData] = useState(null);
+  const [cameraActive, setCameraActive] = useState(false);
 
   useEffect(() => {
     // Generate cookie ID if not exists
@@ -120,86 +120,48 @@ function App() {
     }
   };
 
-  const handleCapturePhoto = (photoData) => {
-    console.log("Received photo data in App component");
-    
-    // Validate photo data
-    if (!photoData || photoData === 'data:,') {
-      setError('Failed to capture photo. Please try again.');
-      setShowCamera(false);
-      setCameraAction(null);
-      return;
-    }
-    
-    // Store the photo and display preview
-    setPhoto(photoData);
+  const handleTakePhoto = (photoData) => {
+    setCameraActive(false);
+    setPhotoData(photoData);
     setPhotoPreview(photoData);
-    setShowCamera(false);
     
-    // Show processing message
-    setLoading(true);
-    setSuccess('Processing photo...');
-    
-    // Use setTimeout to ensure UI updates before heavy processing
-    setTimeout(() => {
-      // Proceed with clock in/out if photo was for a specific action
-      if (cameraAction === 'clockIn') {
-        console.log("Processing clock-in with photo");
-        performClockIn(photoData);
-      } else if (cameraAction === 'clockOut') {
-        console.log("Processing clock-out with photo");
-        performClockOut(photoData);
-      } else {
-        setLoading(false);
-        setSuccess('Photo captured successfully!');
-      }
-      
-      // Reset camera action after processing
-      setCameraAction(null);
-    }, 300); // Increased delay to ensure UI is updated
+    // Process the clock in/out action immediately with the captured photo
+    if (hasOpenSession) {
+      handleClockOut(photoData);
+    } else {
+      handleClockIn(photoData);
+    }
   };
 
-  const handleCancelPhoto = () => {
-    setShowCamera(false);
-    setCameraAction(null);
-    setError(''); // Clear any errors when canceling
+  const toggleCamera = () => {
+    setCameraActive(prev => !prev);
+    
+    // If we're closing the camera, clear any photo data
+    if (cameraActive) {
+      setPhotoData(null);
+      setPhotoPreview(null);
+    }
   };
 
   const initiateClockIn = () => {
     if (!location.lat || !location.lon) {
-      setError('Please share your location first');
+      setError('Please share your location before clocking in');
       return;
     }
-    
-    // Clear any previous errors or success messages
-    setSuccess('');
-    setError('');
-    setCameraAction('clockIn');
     setShowCamera(true);
-    setPhotoPreview(null);
-    console.log("Initiated clock in process, camera should open");
+    setCameraActive(true);
   };
   
   const initiateClockOut = () => {
-    // Clear any previous errors or success messages
-    setSuccess('');
-    setError('');
-    setCameraAction('clockOut');
     setShowCamera(true);
-    setPhotoPreview(null);
-    console.log("Initiated clock out process, camera should open");
+    setCameraActive(true);
   };
 
-  const handleCameraError = (errorMessage) => {
-    setError(`Camera error: ${errorMessage}`);
-    setShowCamera(false);
-    setCameraAction(null);
-  };
-
-  const performClockIn = async (photoData) => {
+  const handleClockIn = async (photoData) => {
     try {
       setLoading(true);
       setError('');
+      setSuccess('');
       await clockIn({
         subContractor: userDetails?.SubContractor || subContractor,
         employee: userDetails?.Employee || employeeName,
@@ -212,21 +174,21 @@ function App() {
       });
       setSuccess('Successfully clocked in!');
       setNotes('');
-      setPhoto(null);
+      setPhotoData(null);
+      setPhotoPreview(null);
       checkUserStatus(cookieId);
     } catch (err) {
-      console.error('Clock in failed:', err);
-      setError('Clock in failed: ' + (err.message || 'Unknown error'));
-      setPhotoPreview(null); // Clear photo preview on error
+      setError('Clock in failed: ' + err.message);
     } finally {
       setLoading(false);
     }
   };
 
-  const performClockOut = async (photoData) => {
+  const handleClockOut = async (photoData) => {
     try {
       setLoading(true);
       setError('');
+      setSuccess('');
       await clockOut({
         cookie: cookieId,
         notes,
@@ -234,12 +196,11 @@ function App() {
       });
       setSuccess('Successfully clocked out!');
       setNotes('');
-      setPhoto(null);
+      setPhotoData(null);
+      setPhotoPreview(null);
       checkUserStatus(cookieId);
     } catch (err) {
-      console.error('Clock out failed:', err);
-      setError('Clock out failed: ' + (err.message || 'Unknown error'));
-      setPhotoPreview(null); // Clear photo preview on error
+      setError('Clock out failed: ' + err.message);
     } finally {
       setLoading(false);
     }
@@ -261,11 +222,10 @@ function App() {
         {success && <div className="success-message">{success}</div>}
         {loading && <div className="loading">Loading</div>}
         
-        {showCamera ? (
+        {showCamera && cameraActive ? (
           <Camera 
-            onCapture={handleCapturePhoto} 
-            onCancel={handleCancelPhoto}
-            onError={handleCameraError}
+            onCapture={handleTakePhoto} 
+            onCancel={() => setCameraActive(false)}
           />
         ) : (
           <>

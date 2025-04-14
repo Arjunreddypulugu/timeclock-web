@@ -45,13 +45,9 @@ export const registerUser = async (userData) => {
 
 export const clockIn = async (clockInData) => {
   try {
-    console.log("Clock in API called with photo:", clockInData.photo ? `${clockInData.photo.substring(0, 50)}... (${clockInData.photo.length} chars)` : 'No photo');
-    
     // If photo is too large, compress it further
     if (clockInData.photo && clockInData.photo.length > 1000000) {
-      console.log("Compressing large photo for clock in");
-      clockInData.photo = await compressImage(clockInData.photo);
-      console.log("Photo compressed, new size:", clockInData.photo.length);
+      clockInData.photo = compressImage(clockInData.photo);
     }
     
     const response = await fetch(`${API_URL}/clock-in`, {
@@ -70,13 +66,9 @@ export const clockIn = async (clockInData) => {
 
 export const clockOut = async (clockOutData) => {
   try {
-    console.log("Clock out API called with photo:", clockOutData.photo ? `${clockOutData.photo.substring(0, 50)}... (${clockOutData.photo.length} chars)` : 'No photo');
-    
     // If photo is too large, compress it further
     if (clockOutData.photo && clockOutData.photo.length > 1000000) {
-      console.log("Compressing large photo for clock out");
-      clockOutData.photo = await compressImage(clockOutData.photo);
-      console.log("Photo compressed, new size:", clockOutData.photo.length);
+      clockOutData.photo = compressImage(clockOutData.photo);
     }
     
     const response = await fetch(`${API_URL}/clock-out`, {
@@ -105,43 +97,36 @@ export const getTimeEntries = async (employeeId) => {
 
 // Helper function to compress images further if needed
 function compressImage(base64Image) {
-  return new Promise((resolve) => {
-    // Create a temporary canvas and image
-    const canvas = document.createElement('canvas');
-    const img = new Image();
-    
-    // Set up image onload handler
-    img.onload = () => {
-      // Reduce image dimensions
-      const maxWidth = 800;
-      const maxHeight = 600;
-      let width = img.width;
-      let height = img.height;
-      
-      if (width > height) {
-        if (width > maxWidth) {
-          height *= maxWidth / width;
-          width = maxWidth;
-        }
-      } else {
-        if (height > maxHeight) {
-          width *= maxHeight / height;
-          height = maxHeight;
-        }
-      }
-      
-      canvas.width = width;
-      canvas.height = height;
-      
-      // Draw the image at the reduced size
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(img, 0, 0, width, height);
-      
-      // Return compressed image with better quality reduction
-      resolve(canvas.toDataURL('image/jpeg', 0.7));
-    };
-    
-    // Set image source to trigger loading
-    img.src = base64Image;
-  });
+  // Create a temporary canvas
+  const canvas = document.createElement('canvas');
+  const img = new Image();
+  img.src = base64Image;
+  
+  // Reduce image dimensions
+  const maxWidth = 800;
+  const maxHeight = 600;
+  let width = img.width;
+  let height = img.height;
+  
+  if (width > height) {
+    if (width > maxWidth) {
+      height *= maxWidth / width;
+      width = maxWidth;
+    }
+  } else {
+    if (height > maxHeight) {
+      width *= maxHeight / height;
+      height = maxHeight;
+    }
+  }
+  
+  canvas.width = width;
+  canvas.height = height;
+  
+  // Draw the image at the reduced size
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(img, 0, 0, width, height);
+  
+  // Return compressed image
+  return canvas.toDataURL('image/jpeg', 0.5); // Reduce quality to 50%
 } 

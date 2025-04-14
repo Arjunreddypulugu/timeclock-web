@@ -1,140 +1,123 @@
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import './Camera.css';
 
 const Camera = ({ onCapture, onCancel }) => {
   const videoRef = useRef(null);
-  const canvasRef = useRef(null);
-  const [isVideoActive, setIsVideoActive] = useState(false);
-  const [error, setError] = useState('');
-  const [isCapturing, setIsCapturing] = useState(false);
-  
-  // Simple function to start the camera
-  const startCamera = async () => {
-    try {
-      setError('');
-      console.log("Starting camera...");
-      
-      // Most basic camera request possible
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: true,
-        audio: false
-      });
-      
-      if (videoRef.current) {
-        console.log("Got stream, setting to video element");
-        videoRef.current.srcObject = stream;
-        
-        // Explicitly set video attributes for mobile
-        videoRef.current.setAttribute('autoplay', '');
-        videoRef.current.setAttribute('playsinline', '');
-        videoRef.current.setAttribute('muted', '');
-        
-        // Mark video as active
-        setIsVideoActive(true);
-      }
-    } catch (err) {
-      console.error("Camera error:", err);
-      setError("Could not access camera. Please check permissions and try again.");
-    }
-  };
-  
-  // Clean up camera on unmount
+  const streamRef = useRef(null);
+  const [error, setError] = useState(null);
+  const [cameraReady, setCameraReady] = useState(false);
+
   useEffect(() => {
-    return () => {
-      if (videoRef.current && videoRef.current.srcObject) {
-        const tracks = videoRef.current.srcObject.getTracks();
-        tracks.forEach(track => track.stop());
+    // Function to initialize camera
+    const setupCamera = async () => {
+      try {
+        // Clear any existing stream
+        if (streamRef.current) {
+          streamRef.current.getTracks().forEach(track => track.stop());
+        }
+        
+        // Get camera stream
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { 
+            facingMode: 'user',
+            width: { ideal: 640 },
+            height: { ideal: 480 } 
+          },
+          audio: false
+        });
+        
+        // Save the stream reference for cleanup
+        streamRef.current = stream;
+        
+        // Set video source
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          videoRef.current.play();
+          setCameraReady(true);
+          setError(null);
+        }
+      } catch (err) {
+        console.error('Camera setup error:', err);
+        setError('Unable to access camera. Please ensure camera permissions are enabled.');
+        setCameraReady(false);
       }
     };
-  }, []);
-  
-  // Simple photo capture function
-  const capturePhoto = () => {
-    if (!videoRef.current || !canvasRef.current || isCapturing) return;
-    
-    setIsCapturing(true);
-    
-    try {
-      const video = videoRef.current;
-      const canvas = canvasRef.current;
+
+    // Start camera when component mounts
+    setupCamera();
+
+    // Cleanup function to stop camera when component unmounts
+    return () => {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => {
+          track.stop();
+        });
+        streamRef.current = null;
+      }
       
-      // Set canvas size to video size or fallback to 640x480
-      const width = video.videoWidth || video.clientWidth || 640;
-      const height = video.videoHeight || video.clientHeight || 480;
-      
-      canvas.width = width;
-      canvas.height = height;
-      
-      // Draw video to canvas
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(video, 0, 0, width, height);
-      
-      // Get image data
-      const imageData = canvas.toDataURL('image/jpeg', 0.8);
-      
-      // Stop the camera stream
-      if (videoRef.current && videoRef.current.srcObject) {
-        const tracks = videoRef.current.srcObject.getTracks();
-        tracks.forEach(track => track.stop());
+      if (videoRef.current) {
         videoRef.current.srcObject = null;
       }
       
-      setIsVideoActive(false);
-      setIsCapturing(false);
+      setCameraReady(false);
+    };
+  }, []);
+
+  const takePhoto = () => {
+    if (!cameraReady || !videoRef.current) return;
+    
+    try {
+      const canvas = document.createElement('canvas');
+      const video = videoRef.current;
       
-      // Pass the photo up to parent
-      onCapture(imageData);
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      
+      const context = canvas.getContext('2d');
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+      
+      const photoData = canvas.toDataURL('image/jpeg');
+      
+      // Stop the camera before sending back photo data
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+        streamRef.current = null;
+      }
+      
+      onCapture(photoData);
     } catch (err) {
-      console.error("Error capturing photo:", err);
-      setError("Failed to capture photo. Please try again.");
-      setIsCapturing(false);
+      console.error('Error taking photo:', err);
+      setError('Failed to capture photo.');
     }
   };
-  
+
+  const handleCancel = () => {
+    // Stop the camera before canceling
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+    }
+    
+    onCancel();
+  };
+
   return (
     <div className="camera-container">
       <div className="video-container">
-        <video 
-          ref={videoRef}
-          className="camera-video"
-          autoPlay
-          playsInline
-          muted
-        />
-        <canvas ref={canvasRef} style={{ display: 'none' }} />
-        
-        {!isVideoActive && !error && (
-          <div className="camera-placeholder">
-            <div className="camera-start-prompt">
-              <span>📷</span>
-              <p>Tap "Start Camera" to begin</p>
-            </div>
-          </div>
-        )}
+        <video ref={videoRef} className="camera-video" playsInline />
       </div>
       
-      {error && (
-        <div className="camera-message error-message">{error}</div>
-      )}
+      {error && <div className="camera-error">{error}</div>}
       
       <div className="camera-controls">
-        {isVideoActive ? (
-          <button 
-            onClick={capturePhoto}
-            className="capture-btn"
-            disabled={isCapturing}
-          >
-            {isCapturing ? "Capturing..." : "Take Photo"}
-          </button>
-        ) : (
-          <button 
-            onClick={startCamera}
-            className="start-btn"
-          >
-            Start Camera
-          </button>
-        )}
-        <button onClick={onCancel} className="cancel-btn">
+        <button 
+          className="capture-btn" 
+          onClick={takePhoto} 
+          disabled={!cameraReady}
+        >
+          Take Photo
+        </button>
+        <button className="cancel-btn" onClick={handleCancel}>
           Cancel
         </button>
       </div>
