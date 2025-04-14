@@ -14,6 +14,7 @@ function App() {
   const [worksite, setWorksite] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
   
   // Registration form state
   const [subContractor, setSubContractor] = useState('');
@@ -26,6 +27,7 @@ function App() {
   // Camera state
   const [showCamera, setShowCamera] = useState(false);
   const [photo, setPhoto] = useState(null);
+  const [photoPreview, setPhotoPreview] = useState(null);
   const [cameraAction, setCameraAction] = useState(null); // 'clockIn' or 'clockOut'
 
   useEffect(() => {
@@ -45,6 +47,7 @@ function App() {
   const checkUserStatus = async (id) => {
     try {
       setLoading(true);
+      setError('');
       const response = await getUserStatus(id);
       setIsNewUser(response.isNewUser);
       setHasOpenSession(response.hasOpenSession);
@@ -59,6 +62,7 @@ function App() {
 
   const handleShareLocation = () => {
     setError('');
+    setSuccess('');
     if (navigator.geolocation) {
       setLoading(true);
       navigator.geolocation.getCurrentPosition(
@@ -71,6 +75,7 @@ function App() {
             // Verify location with backend
             const response = await verifyLocation(lat, lon);
             setWorksite(response.customer_name || 'Unknown location');
+            setSuccess('Location verified: ' + (response.customer_name || 'Unknown location'));
             setLoading(false);
           } catch (err) {
             setError('Location verification failed: ' + err.message);
@@ -98,12 +103,15 @@ function App() {
     
     try {
       setLoading(true);
+      setError('');
+      setSuccess('');
       await registerUser({
         subContractor,
         employee: employeeName,
         number: phoneNumber,
         cookie: cookieId
       });
+      setSuccess('Registration successful!');
       checkUserStatus(cookieId);
     } catch (err) {
       setError('Registration failed: ' + err.message);
@@ -114,6 +122,7 @@ function App() {
 
   const handleCapturePhoto = (photoData) => {
     setPhoto(photoData);
+    setPhotoPreview(photoData);
     setShowCamera(false);
     
     // Proceed with clock in/out if photo was for a specific action
@@ -137,16 +146,20 @@ function App() {
     
     setCameraAction('clockIn');
     setShowCamera(true);
+    setPhotoPreview(null);
   };
   
   const initiateClockOut = () => {
     setCameraAction('clockOut');
     setShowCamera(true);
+    setPhotoPreview(null);
   };
 
   const performClockIn = async (photoData) => {
     try {
       setLoading(true);
+      setError('');
+      setSuccess('');
       await clockIn({
         subContractor: userDetails?.SubContractor || subContractor,
         employee: userDetails?.Employee || employeeName,
@@ -157,6 +170,7 @@ function App() {
         notes,
         photo: photoData
       });
+      setSuccess('Successfully clocked in!');
       setNotes('');
       setPhoto(null);
       checkUserStatus(cookieId);
@@ -170,11 +184,14 @@ function App() {
   const performClockOut = async (photoData) => {
     try {
       setLoading(true);
+      setError('');
+      setSuccess('');
       await clockOut({
         cookie: cookieId,
         notes,
         photo: photoData
       });
+      setSuccess('Successfully clocked out!');
       setNotes('');
       setPhoto(null);
       checkUserStatus(cookieId);
@@ -188,10 +205,18 @@ function App() {
   return (
     <div className="App">
       <header className="App-header">
-        <h1>TimeClock App</h1>
+        <div className="app-title">
+          <img 
+            src="https://vdrs.com/wp-content/uploads/2022/08/VDRS-lockup-mod-8-19-22-350.png" 
+            alt="Van Dyk Recycling Solutions Logo" 
+            className="app-logo"
+          />
+          <h1>TimeClock Portal</h1>
+        </div>
         
         {error && <div className="error-message">{error}</div>}
-        {loading && <div className="loading">Loading...</div>}
+        {success && <div className="success-message">{success}</div>}
+        {loading && <div className="loading">Loading</div>}
         
         {showCamera ? (
           <Camera 
@@ -203,7 +228,7 @@ function App() {
             <div className="location-section">
               <h2>Your Location</h2>
               <button onClick={handleShareLocation} className="share-location-btn">
-                Share Location
+                {location.lat && location.lon ? 'Update Location' : 'Share Location'}
               </button>
               
               {location.lat && location.lon && (
@@ -225,6 +250,7 @@ function App() {
                       type="text" 
                       value={subContractor}
                       onChange={(e) => setSubContractor(e.target.value)}
+                      placeholder="Enter subcontractor name"
                       required
                     />
                   </div>
@@ -235,6 +261,7 @@ function App() {
                       type="text" 
                       value={employeeName}
                       onChange={(e) => setEmployeeName(e.target.value)}
+                      placeholder="Enter your full name"
                       required
                     />
                   </div>
@@ -245,6 +272,7 @@ function App() {
                       type="text" 
                       value={phoneNumber}
                       onChange={(e) => setPhoneNumber(e.target.value)}
+                      placeholder="Enter your phone number"
                       required
                     />
                   </div>
@@ -258,6 +286,12 @@ function App() {
                   Welcome back, {userDetails?.Employee || employeeName}!
                 </div>
                 
+                {photoPreview && (
+                  <div className="photo-preview-container">
+                    <img src={photoPreview} alt="Captured" className="photo-preview" />
+                  </div>
+                )}
+                
                 {hasOpenSession ? (
                   <div className="open-session">
                     <p>You clocked in at: {new Date(openSession?.ClockIn).toLocaleString()}</p>
@@ -267,7 +301,7 @@ function App() {
                       <textarea
                         value={notes}
                         onChange={(e) => setNotes(e.target.value)}
-                        placeholder="Add notes for clock-out"
+                        placeholder="Add notes for clock-out (optional)"
                       />
                     </div>
                     
@@ -282,7 +316,7 @@ function App() {
                       <textarea
                         value={notes}
                         onChange={(e) => setNotes(e.target.value)}
-                        placeholder="Add notes for clock-in"
+                        placeholder="Add notes for clock-in (optional)"
                       />
                     </div>
                     
