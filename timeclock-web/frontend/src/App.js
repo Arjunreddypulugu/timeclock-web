@@ -6,6 +6,8 @@ import Layout from './components/Layout';
 import LocationCard from './components/LocationCard';
 import RegistrationForm from './components/RegistrationForm';
 import TimeClockCard from './components/TimeClockCard';
+import Camera from './components/Camera';
+import Button from './components/Button';
 import { verifyLocation, getUserStatus, registerUser, clockIn, clockOut } from './services/api';
 
 function App() {
@@ -26,6 +28,12 @@ function App() {
   
   // Clock in/out state
   const [notes, setNotes] = useState('');
+  
+  // Camera state
+  const [showCamera, setShowCamera] = useState(false);
+  const [clockInImage, setClockInImage] = useState('');
+  const [clockOutImage, setClockOutImage] = useState('');
+  const [captureMode, setCaptureMode] = useState(''); // 'clockIn' or 'clockOut'
 
   useEffect(() => {
     // Generate cookie ID if not exists
@@ -111,7 +119,15 @@ function App() {
     }
   };
 
-  const handleClockIn = async () => {
+  const handleCaptureImage = (imageData) => {
+    if (captureMode === 'clockIn') {
+      setClockInImage(imageData);
+    } else if (captureMode === 'clockOut') {
+      setClockOutImage(imageData);
+    }
+  };
+
+  const startClockIn = () => {
     if (!location.lat || !location.lon) {
       setError('Please share your location first');
       return;
@@ -119,6 +135,17 @@ function App() {
     
     if (!worksite || worksite === 'Unknown location') {
       setError('You must be at a valid worksite to clock in');
+      return;
+    }
+    
+    setCaptureMode('clockIn');
+    setShowCamera(true);
+    setError('');
+  };
+
+  const handleClockIn = async () => {
+    if (!clockInImage) {
+      setError('Please take a photo first');
       return;
     }
     
@@ -131,9 +158,12 @@ function App() {
         lat: location.lat,
         lon: location.lon,
         cookie: cookieId,
-        notes
+        notes,
+        image: clockInImage
       });
       setNotes('');
+      setClockInImage('');
+      setShowCamera(false);
       checkUserStatus(cookieId);
     } catch (err) {
       setError('Clock in failed: ' + (err.message || 'Unknown error'));
@@ -142,14 +172,28 @@ function App() {
     }
   };
 
+  const startClockOut = () => {
+    setCaptureMode('clockOut');
+    setShowCamera(true);
+    setError('');
+  };
+
   const handleClockOut = async () => {
+    if (!clockOutImage) {
+      setError('Please take a photo first');
+      return;
+    }
+    
     try {
       setLoading(true);
       await clockOut({
         cookie: cookieId,
-        notes
+        notes,
+        image: clockOutImage
       });
       setNotes('');
+      setClockOutImage('');
+      setShowCamera(false);
       checkUserStatus(cookieId);
     } catch (err) {
       setError('Clock out failed: ' + (err.message || 'Unknown error'));
@@ -158,41 +202,81 @@ function App() {
     }
   };
 
+  const cancelCapture = () => {
+    setShowCamera(false);
+    setCaptureMode('');
+    if (captureMode === 'clockIn') {
+      setClockInImage('');
+    } else if (captureMode === 'clockOut') {
+      setClockOutImage('');
+    }
+  };
+
   return (
     <ThemeProvider theme={theme}>
       <GlobalStyles />
       <Layout error={error} loading={false}>
-        <LocationCard 
-          location={location}
-          worksite={worksite}
-          handleShareLocation={handleShareLocation}
-          loading={loading}
-        />
-        
-        {isNewUser ? (
-          <RegistrationForm 
-            handleRegister={handleRegister}
-            loading={loading}
-            subContractor={subContractor}
-            setSubContractor={setSubContractor}
-            employeeName={employeeName}
-            setEmployeeName={setEmployeeName}
-            phoneNumber={phoneNumber}
-            setPhoneNumber={setPhoneNumber}
-          />
+        {showCamera ? (
+          <div>
+            <h2>{captureMode === 'clockIn' ? 'Take Clock-In Photo' : 'Take Clock-Out Photo'}</h2>
+            <Camera 
+              onCapture={handleCaptureImage}
+              onClear={() => handleCaptureImage('')}
+            />
+            <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center' }}>
+              <Button 
+                variant="secondary" 
+                onClick={cancelCapture}
+              >
+                Cancel
+              </Button>
+              <Button 
+                variant="primary" 
+                onClick={captureMode === 'clockIn' ? handleClockIn : handleClockOut}
+                disabled={
+                  (captureMode === 'clockIn' && !clockInImage) || 
+                  (captureMode === 'clockOut' && !clockOutImage)
+                }
+              >
+                {captureMode === 'clockIn' ? 'Complete Clock In' : 'Complete Clock Out'}
+              </Button>
+            </div>
+          </div>
         ) : (
-          <TimeClockCard 
-            hasOpenSession={hasOpenSession}
-            openSession={openSession}
-            userDetails={userDetails}
-            handleClockIn={handleClockIn}
-            handleClockOut={handleClockOut}
-            notes={notes}
-            setNotes={setNotes}
-            loading={loading}
-            location={location}
-            worksite={worksite}
-          />
+          <>
+            <LocationCard 
+              location={location}
+              worksite={worksite}
+              handleShareLocation={handleShareLocation}
+              loading={loading}
+            />
+            
+            {isNewUser ? (
+              <RegistrationForm 
+                handleRegister={handleRegister}
+                loading={loading}
+                subContractor={subContractor}
+                setSubContractor={setSubContractor}
+                employeeName={employeeName}
+                setEmployeeName={setEmployeeName}
+                phoneNumber={phoneNumber}
+                setPhoneNumber={setPhoneNumber}
+              />
+            ) : (
+              <TimeClockCard 
+                hasOpenSession={hasOpenSession}
+                openSession={openSession}
+                userDetails={userDetails}
+                handleClockIn={startClockIn}
+                handleClockOut={startClockOut}
+                notes={notes}
+                setNotes={setNotes}
+                loading={loading}
+                location={location}
+                worksite={worksite}
+              />
+            )}
+          </>
         )}
       </Layout>
     </ThemeProvider>

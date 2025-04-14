@@ -165,7 +165,16 @@ app.post('/api/register', async (req, res) => {
 app.post('/api/clock-in', async (req, res) => {
   try {
     await poolConnect;
-    const { subContractor, employee, number, lat, lon, cookie, notes } = req.body;
+    const { subContractor, employee, number, lat, lon, cookie, notes, image } = req.body;
+
+    // Process base64 image if provided
+    let imageBuffer = null;
+    if (image) {
+      // Remove data:image/jpeg;base64, prefix
+      const base64Data = image.replace(/^data:image\/\w+;base64,/, '');
+      imageBuffer = Buffer.from(base64Data, 'base64');
+      console.log(`Received image for clock-in: ${imageBuffer.length} bytes`);
+    }
 
     // First verify location is valid before allowing clock in
     const validLocation = await pool.request()
@@ -210,9 +219,10 @@ app.post('/api/clock-in', async (req, res) => {
       .input('cookie', sql.NVarChar, cookie)
       .input('notes', sql.NVarChar, notes)
       .input('worksite', sql.NVarChar, validLocation.recordset[0].customer_name)
+      .input('image', sql.VarBinary(sql.MAX), imageBuffer)
       .query(`
-        INSERT INTO TimeClock (SubContractor, Employee, Number, ClockIn, Lat, Lon, Cookie, ClockInNotes, Worksite)
-        VALUES (@subContractor, @employee, @number, GETDATE(), @lat, @lon, @cookie, @notes, @worksite);
+        INSERT INTO TimeClock (SubContractor, Employee, Number, ClockIn, Lat, Lon, Cookie, ClockInNotes, Worksite, ClockInImage)
+        VALUES (@subContractor, @employee, @number, GETDATE(), @lat, @lon, @cookie, @notes, @worksite, @image);
         SELECT SCOPE_IDENTITY() as id;
       `);
 
@@ -227,15 +237,26 @@ app.post('/api/clock-in', async (req, res) => {
 app.post('/api/clock-out', async (req, res) => {
   try {
     await poolConnect;
-    const { cookie, notes } = req.body;
+    const { cookie, notes, image } = req.body;
+
+    // Process base64 image if provided
+    let imageBuffer = null;
+    if (image) {
+      // Remove data:image/jpeg;base64, prefix
+      const base64Data = image.replace(/^data:image\/\w+;base64,/, '');
+      imageBuffer = Buffer.from(base64Data, 'base64');
+      console.log(`Received image for clock-out: ${imageBuffer.length} bytes`);
+    }
 
     const result = await pool.request()
       .input('cookie', sql.NVarChar, cookie)
       .input('notes', sql.NVarChar, notes)
+      .input('image', sql.VarBinary(sql.MAX), imageBuffer)
       .query(`
         UPDATE TimeClock 
         SET ClockOut = GETDATE(),
-            ClockOutNotes = @notes
+            ClockOutNotes = @notes,
+            ClockOutImage = @image
         WHERE Cookie = @cookie AND ClockOut IS NULL;
         
         SELECT @@ROWCOUNT as updated;
@@ -247,6 +268,7 @@ app.post('/api/clock-out', async (req, res) => {
 
     res.json({ success: true });
   } catch (err) {
+    console.error(`Clock out error: ${err.message}`);
     res.status(500).json({ error: err.message });
   }
 });
