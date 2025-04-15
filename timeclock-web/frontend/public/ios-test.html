@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>iOS TimeClock Test</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            max-width: 800px;
+            margin: 0 auto;
+            background-color: #f5f5f7;
+            color: #333;
+        }
+        h1, h2 {
+            color: #1d1d1f;
+        }
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+        }
+        button {
+            background-color: #0071e3;
+            color: white;
+            border: none;
+            padding: 12px 20px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 500;
+            cursor: pointer;
+            margin: 5px 0;
+            width: 100%;
+        }
+        button:active {
+            background-color: #0062c3;
+        }
+        input, textarea {
+            display: block;
+            width: 100%;
+            padding: 12px;
+            margin: 10px 0;
+            border: 1px solid #d2d2d7;
+            border-radius: 8px;
+            box-sizing: border-box;
+            font-size: 16px;
+        }
+        label {
+            display: block;
+            margin: 10px 0 5px;
+            font-weight: 600;
+        }
+        .result {
+            background-color: #f2f2f7;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 10px 0;
+            overflow-wrap: break-word;
+            white-space: pre-wrap;
+        }
+        .logs {
+            font-family: monospace;
+            font-size: 14px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        .photo-container {
+            width: 100%;
+            height: 200px;
+            border: 2px dashed #d2d2d7;
+            border-radius: 8px;
+            margin: 10px 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            overflow: hidden;
+        }
+        .photo-container img {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+        }
+    </style>
+</head>
+<body>
+    <h1>iOS TimeClock Test</h1>
+    
+    <div class="card">
+        <h2>Device Info</h2>
+        <div class="result" id="device-info">Loading...</div>
+    </div>
+    
+    <div class="card">
+        <h2>Cookie Management</h2>
+        <label for="cookie-input">Cookie ID:</label>
+        <input type="text" id="cookie-input" placeholder="Enter cookie ID or generate new one" />
+        <button id="generate-cookie">Generate New Cookie</button>
+        <button id="save-cookie">Save Cookie</button>
+    </div>
+    
+    <div class="card">
+        <h2>Clock In (Simple Endpoint)</h2>
+        <label for="worksite-input">Worksite:</label>
+        <input type="text" id="worksite-input" placeholder="Enter worksite name" />
+        
+        <button id="get-location">Get Location</button>
+        <div class="result" id="location-result">Not requested yet</div>
+        
+        <button id="clock-in-simple">Clock In (Simple)</button>
+        <div class="result" id="clock-in-simple-result">Not attempted yet</div>
+    </div>
+    
+    <div class="card">
+        <h2>Clock Out (Simple Endpoint)</h2>
+        <button id="clock-out-simple">Clock Out (Simple)</button>
+        <div class="result" id="clock-out-simple-result">Not attempted yet</div>
+    </div>
+    
+    <div class="card">
+        <h2>Image Testing</h2>
+        <div>
+            <button id="captureBtn">Take Photo</button>
+            <input type="file" id="imageInput" accept="image/*" capture="environment" style="display:none">
+            <div id="imagePreview" style="margin-top: 10px; display: none;">
+                <img id="previewImage" style="max-width: 100%; max-height: 300px;" />
+                <div style="margin-top: 10px;">
+                    <button id="testBase64UploadBtn">Test Base64 Upload</button>
+                    <button id="testMultipartUploadBtn">Test Multipart Upload</button>
+                    <button id="testFormDataUploadBtn">Test FormData Upload</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="card">
+        <h2>Debug Log</h2>
+        <div class="result logs" id="debug-log"></div>
+        <button id="clear-log">Clear Log</button>
+    </div>
+
+    <script>
+        // Utility functions
+        function log(message) {
+            const logElement = document.getElementById('debug-log');
+            const timestamp = new Date().toLocaleTimeString();
+            logElement.innerHTML += `<div>[${timestamp}] ${message}</div>`;
+            logElement.scrollTop = logElement.scrollHeight;
+        }
+        
+        // Display device info
+        function showDeviceInfo() {
+            const deviceInfo = document.getElementById('device-info');
+            const info = {
+                userAgent: navigator.userAgent,
+                platform: navigator.platform,
+                vendor: navigator.vendor,
+                isIOS: /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream,
+                screenSize: `${window.innerWidth}x${window.innerHeight}`,
+                pixelRatio: window.devicePixelRatio
+            };
+            
+            deviceInfo.textContent = JSON.stringify(info, null, 2);
+            log('Device info loaded');
+        }
+        
+        // Cookie management
+        function generateCookie() {
+            const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+            let result = '';
+            for (let i = 0; i < 20; i++) {
+                result += chars.charAt(Math.floor(Math.random() * chars.length));
+            }
+            document.getElementById('cookie-input').value = result;
+            log(`Generated new cookie: ${result}`);
+            return result;
+        }
+        
+        function saveCookie() {
+            const cookie = document.getElementById('cookie-input').value;
+            if (!cookie) {
+                alert('Please enter or generate a cookie first');
+                return;
+            }
+            
+            localStorage.setItem('timeclock-cookie', cookie);
+            log(`Saved cookie to localStorage: ${cookie}`);
+            alert('Cookie saved!');
+        }
+        
+        function loadCookie() {
+            const saved = localStorage.getItem('timeclock-cookie');
+            if (saved) {
+                document.getElementById('cookie-input').value = saved;
+                log(`Loaded saved cookie: ${saved}`);
+            } else {
+                log('No saved cookie found');
+            }
+        }
+        
+        // Location handling
+        function getLocation() {
+            const locationResult = document.getElementById('location-result');
+            locationResult.textContent = 'Requesting location...';
+            
+            if (!navigator.geolocation) {
+                locationResult.textContent = 'Geolocation is not supported by your browser';
+                log('Geolocation not supported');
+                return;
+            }
+            
+            navigator.geolocation.getCurrentPosition(
+                (position) => {
+                    const lat = position.coords.latitude;
+                    const lon = position.coords.longitude;
+                    locationResult.textContent = `Latitude: ${lat}, Longitude: ${lon}`;
+                    log(`Got location: ${lat}, ${lon}`);
+                },
+                (error) => {
+                    locationResult.textContent = `Error getting location: ${error.message}`;
+                    log(`Location error: ${error.message}`);
+                },
+                { enableHighAccuracy: true }
+            );
+        }
+        
+        // Clock in/out functions
+        async function clockInSimple() {
+            const resultElement = document.getElementById('clock-in-simple-result');
+            resultElement.textContent = 'Processing...';
+            
+            try {
+                const cookie = document.getElementById('cookie-input').value;
+                if (!cookie) {
+                    resultElement.textContent = 'Error: Cookie is required';
+                    return;
+                }
+                
+                const locationText = document.getElementById('location-result').textContent;
+                let lat = null;
+                let lon = null;
+                
+                if (locationText.includes('Latitude')) {
+                    const matches = locationText.match(/Latitude: ([\d.-]+), Longitude: ([\d.-]+)/);
+                    if (matches) {
+                        lat = matches[1];
+                        lon = matches[2];
+                    }
+                }
+                
+                const customerName = document.getElementById('worksite-input').value;
+                
+                const url = new URL('/api/clock-in-simple', window.location.origin);
+                url.searchParams.append('cookie', cookie);
+                if (lat && lon) {
+                    url.searchParams.append('lat', lat);
+                    url.searchParams.append('lon', lon);
+                }
+                if (customerName) {
+                    url.searchParams.append('customerName', customerName);
+                }
+                
+                log(`Clock in request to: ${url.toString()}`);
+                
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Accept': 'application/json'
+                    }
+                });
+                
+                const data = await response.json();
+                log(`Clock in response: ${JSON.stringify(data)}`);
+                
+                resultElement.textContent = JSON.stringify(data, null, 2);
+            } catch (error) {
+                log(`Clock in error: ${error.message}`);
+                resultElement.textContent = `Error: ${error.message}`;
+            }
+        }
+        
+        async function clockOutSimple() {
+            const resultElement = document.getElementById('clock-out-simple-result');
+            resultElement.textContent = 'Processing...';
+            
+            try {
+                const cookie = document.getElementById('cookie-input').value;
+                if (!cookie) {
+                    resultElement.textContent = 'Error: Cookie is required';
+                    return;
+                }
+                
+                const locationText = document.getElementById('location-result').textContent;
+                let lat = null;
+                let lon = null;
+                
+                if (locationText.includes('Latitude')) {
+                    const matches = locationText.match(/Latitude: ([\d.-]+), Longitude: ([\d.-]+)/);
+                    if (matches) {
+                        lat = matches[1];
+                        lon = matches[2];
+                    }
+                }
+                
+                const url = new URL('/api/clock-out-simple', window.location.origin);
+                url.searchParams.append('cookie', cookie);
+                if (lat && lon) {
+                    url.searchParams.append('lat', lat);
+                    url.searchParams.append('lon', lon);
+                }
+                
+                log(`Clock out request to: ${url.toString()}`);
+                
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Accept': 'application/json'
+                    }
+                });
+                
+                const data = await response.json();
+                log(`Clock out response: ${JSON.stringify(data)}`);
+                
+                resultElement.textContent = JSON.stringify(data, null, 2);
+            } catch (error) {
+                log(`Clock out error: ${error.message}`);
+                resultElement.textContent = `Error: ${error.message}`;
+            }
+        }
+        
+        // Image handling
+        function setupImageHandling() {
+            const captureBtn = document.getElementById('captureBtn');
+            const imageInput = document.getElementById('imageInput');
+            const imagePreview = document.getElementById('imagePreview');
+            const previewImage = document.getElementById('previewImage');
+            const testBase64UploadBtn = document.getElementById('testBase64UploadBtn');
+            const testMultipartUploadBtn = document.getElementById('testMultipartUploadBtn');
+            const testFormDataUploadBtn = document.getElementById('testFormDataUploadBtn');
+            
+            let capturedImage = null;
+            
+            captureBtn.addEventListener('click', () => {
+                imageInput.click();
+            });
+            
+            imageInput.addEventListener('change', (e) => {
+                if (e.target.files && e.target.files[0]) {
+                    const file = e.target.files[0];
+                    
+                    // Display image preview
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        previewImage.src = e.target.result;
+                        capturedImage = e.target.result;
+                        imagePreview.style.display = 'block';
+                        
+                        logMessage(`Image captured: ${file.type}, ${Math.round(file.size / 1024)} KB`);
+                    };
+                    reader.readAsDataURL(file);
+                }
+            });
+            
+            // Test base64 upload
+            testBase64UploadBtn.addEventListener('click', () => {
+                if (!capturedImage) {
+                    logMessage('No image captured yet');
+                    return;
+                }
+                
+                logMessage('Testing base64 image upload...');
+                
+                // Extract base64 data from the data URL
+                const base64Data = capturedImage.split(',')[1];
+                
+                fetch('/api/test-image', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        image: base64Data,
+                        data: {
+                            cookieId: getCookieId(),
+                            testInfo: 'Base64 image upload test'
+                        }
+                    })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    logMessage(`Base64 upload response: ${JSON.stringify(data)}`);
+                })
+                .catch(error => {
+                    logMessage(`Base64 upload error: ${error.message}`);
+                });
+            });
+            
+            // Test multipart form upload
+            testMultipartUploadBtn.addEventListener('click', () => {
+                if (!imageInput.files || !imageInput.files[0]) {
+                    logMessage('No image captured yet');
+                    return;
+                }
+                
+                logMessage('Testing multipart form upload...');
+                
+                const formData = new FormData();
+                formData.append('image', imageInput.files[0]);
+                formData.append('data', JSON.stringify({
+                    cookieId: getCookieId(),
+                    testInfo: 'Multipart form upload test'
+                }));
+                
+                fetch('/api/test-image-multipart', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(response => response.json())
+                .then(data => {
+                    logMessage(`Multipart upload response: ${JSON.stringify(data)}`);
+                })
+                .catch(error => {
+                    logMessage(`Multipart upload error: ${error.message}`);
+                });
+            });
+            
+            // Test FormData upload with blob
+            testFormDataUploadBtn.addEventListener('click', async () => {
+                if (!capturedImage) {
+                    logMessage('No image captured yet');
+                    return;
+                }
+                
+                logMessage('Testing FormData with blob upload...');
+                
+                try {
+                    // Convert base64 to blob
+                    const base64Response = await fetch(capturedImage);
+                    const blob = await base64Response.blob();
+                    
+                    const formData = new FormData();
+                    formData.append('image', blob, 'image.jpg');
+                    formData.append('data', JSON.stringify({
+                        cookieId: getCookieId(),
+                        testInfo: 'FormData with blob upload test'
+                    }));
+                    
+                    fetch('/api/test-image-multipart', {
+                        method: 'POST',
+                        body: formData
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        logMessage(`FormData upload response: ${JSON.stringify(data)}`);
+                    })
+                    .catch(error => {
+                        logMessage(`FormData upload error: ${error.message}`);
+                    });
+                } catch (error) {
+                    logMessage(`Error preparing FormData upload: ${error.message}`);
+                }
+            });
+        }
+        
+        // Initialize the page
+        document.addEventListener('DOMContentLoaded', () => {
+            showDeviceInfo();
+            loadCookie();
+            
+            document.getElementById('generate-cookie').addEventListener('click', generateCookie);
+            document.getElementById('save-cookie').addEventListener('click', saveCookie);
+            document.getElementById('get-location').addEventListener('click', getLocation);
+            document.getElementById('clock-in-simple').addEventListener('click', clockInSimple);
+            document.getElementById('clock-out-simple').addEventListener('click', clockOutSimple);
+            document.getElementById('clear-log').addEventListener('click', () => {
+                document.getElementById('debug-log').innerHTML = '';
+            });
+            
+            setupImageHandling();
+            
+            log('Page initialized');
+        });
+    </script>
+</body>
+</html> 

@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Image Debugger</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+            color: #333;
+        }
+        h1 {
+            text-align: center;
+            color: #2c3e50;
+        }
+        .container {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input, select, button {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 16px;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            cursor: pointer;
+            margin-top: 10px;
+            transition: background 0.3s;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        .image-container {
+            margin-top: 20px;
+            text-align: center;
+        }
+        .image-container img {
+            max-width: 100%;
+            max-height: 500px;
+            margin-top: 15px;
+            border: 1px solid #ddd;
+        }
+        .log-container {
+            margin-top: 20px;
+            background-color: #f8f9fa;
+            border: 1px solid #ddd;
+            padding: 10px;
+            border-radius: 4px;
+            height: 200px;
+            overflow-y: auto;
+        }
+        .log-entry {
+            margin-bottom: 5px;
+            font-family: monospace;
+        }
+        .info {
+            color: #0366d6;
+        }
+        .error {
+            color: #d73a49;
+        }
+        .success {
+            color: #22863a;
+        }
+        .tabs {
+            display: flex;
+            margin-bottom: 15px;
+            border-bottom: 1px solid #ddd;
+        }
+        .tab {
+            padding: 10px 15px;
+            cursor: pointer;
+            background-color: #f8f9fa;
+            border: 1px solid #ddd;
+            border-bottom: none;
+            margin-right: 5px;
+            border-top-left-radius: 4px;
+            border-top-right-radius: 4px;
+        }
+        .tab.active {
+            background-color: white;
+            font-weight: bold;
+        }
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
+        }
+        .section-header {
+            margin-top: 30px;
+            padding-bottom: 5px;
+            border-bottom: 1px solid #ddd;
+        }
+        .device-info {
+            margin-top: 20px;
+            padding: 10px;
+            background-color: #e9f5ff;
+            border-radius: 4px;
+        }
+        pre {
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            background-color: #f1f1f1;
+            padding: 15px;
+            border-radius: 4px;
+            overflow-x: auto;
+        }
+        .clear-btn {
+            background-color: #6c757d;
+            margin-top: 5px;
+        }
+        .btn-row {
+            display: flex;
+            gap: 10px;
+        }
+        .btn-row button {
+            flex: 1;
+        }
+        #testCameraBtn {
+            background-color: #007bff;
+        }
+        #compareImages {
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+        .compare-item {
+            flex: 1;
+            min-width: 300px;
+            border: 1px solid #ddd;
+            padding: 10px;
+            background-color: white;
+        }
+    </style>
+</head>
+<body>
+    <h1>Advanced Image Debugger</h1>
+    
+    <div class="tabs">
+        <div class="tab active" data-tab="view">View Images</div>
+        <div class="tab" data-tab="test">Test Camera</div>
+        <div class="tab" data-tab="debug">Debug Info</div>
+    </div>
+    
+    <div class="container tab-content active" id="view-tab">
+        <h2 class="section-header">Image Viewer</h2>
+        <div class="form-group">
+            <label for="recordId">Record ID:</label>
+            <input type="number" id="recordId" placeholder="Enter record ID">
+        </div>
+        <div class="form-group">
+            <label for="imageType">Image Type:</label>
+            <select id="imageType">
+                <option value="clock-in">Clock-In Image</option>
+                <option value="clock-out">Clock-Out Image</option>
+            </select>
+        </div>
+        <button id="viewBtn">View Image</button>
+        
+        <div class="image-container">
+            <h3 id="imageTitle">Image will appear here</h3>
+            <div id="imageInfo"></div>
+            <img id="viewedImage" src="" alt="Selected image will appear here" style="display: none;">
+        </div>
+    </div>
+    
+    <div class="container tab-content" id="test-tab">
+        <h2 class="section-header">Camera Test</h2>
+        <p>Test your device's camera and see how the image data is processed:</p>
+        
+        <div class="btn-row">
+            <button id="testCameraBtn">Take Test Photo</button>
+            <button id="processImageBtn" disabled>Process Image</button>
+        </div>
+        
+        <div class="image-container">
+            <h3>Preview</h3>
+            <img id="previewImage" src="" alt="Camera preview will appear here" style="display: none;">
+        </div>
+        
+        <div id="compareImages">
+            <div class="compare-item">
+                <h4>Original Image</h4>
+                <div id="originalSize"></div>
+                <img id="originalImage" style="max-width: 100%;">
+            </div>
+            <div class="compare-item">
+                <h4>Processed Image</h4>
+                <div id="processedSize"></div>
+                <img id="processedImage" style="max-width: 100%;">
+            </div>
+        </div>
+    </div>
+    
+    <div class="container tab-content" id="debug-tab">
+        <h2 class="section-header">Device Information</h2>
+        <div class="device-info" id="deviceInfo">
+            Loading device information...
+        </div>
+        
+        <h2 class="section-header">Base64 Test</h2>
+        <p>Test base64 encoding/decoding on your device:</p>
+        <div class="form-group">
+            <label for="testText">Text to encode:</label>
+            <input type="text" id="testText" value="Hello World">
+        </div>
+        <button id="testBase64Btn">Test Base64</button>
+        <div class="form-group">
+            <label>Results:</label>
+            <pre id="base64Results"></pre>
+        </div>
+    </div>
+    
+    <h2 class="section-header">Debug Log</h2>
+    <div class="log-container" id="logContainer"></div>
+    <button class="clear-btn" id="clearLogBtn">Clear Log</button>
+
+    <script>
+        // Utility functions
+        function log(message, type = 'info') {
+            const logContainer = document.getElementById('logContainer');
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+            entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logContainer.appendChild(entry);
+            logContainer.scrollTop = logContainer.scrollHeight;
+        }
+        
+        function showTab(tabId) {
+            document.querySelectorAll('.tab-content').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            document.querySelectorAll('.tab').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            
+            document.getElementById(tabId + '-tab').classList.add('active');
+            document.querySelector(`.tab[data-tab="${tabId}"]`).classList.add('active');
+        }
+        
+        // Tab navigation
+        document.querySelectorAll('.tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                const tabId = tab.getAttribute('data-tab');
+                showTab(tabId);
+            });
+        });
+        
+        // Image Viewer functionality
+        document.getElementById('viewBtn').addEventListener('click', () => {
+            const recordId = document.getElementById('recordId').value;
+            const imageType = document.getElementById('imageType').value;
+            
+            if (!recordId) {
+                log('Please enter a record ID', 'error');
+                return;
+            }
+            
+            log(`Fetching ${imageType} image for record #${recordId}...`);
+            
+            fetch(`/api/get-image/${recordId}/${imageType}`)
+                .then(response => {
+                    if (!response.ok) {
+                        return response.json().then(err => {
+                            throw new Error(err.error || `HTTP error! status: ${response.status}`);
+                        });
+                    }
+                    return response.blob();
+                })
+                .then(blob => {
+                    const imageUrl = URL.createObjectURL(blob);
+                    const viewedImage = document.getElementById('viewedImage');
+                    viewedImage.src = imageUrl;
+                    viewedImage.style.display = 'block';
+                    
+                    document.getElementById('imageTitle').textContent = 
+                        `${imageType === 'clock-in' ? 'Clock-In' : 'Clock-Out'} Image for Record #${recordId}`;
+                    
+                    const imageInfo = document.getElementById('imageInfo');
+                    imageInfo.innerHTML = `
+                        <p>Image Type: ${blob.type}</p>
+                        <p>Size: ${(blob.size / 1024).toFixed(2)} KB</p>
+                    `;
+                    
+                    log(`Successfully loaded image (${(blob.size / 1024).toFixed(2)} KB)`, 'success');
+                })
+                .catch(error => {
+                    log(`Error: ${error.message}`, 'error');
+                    document.getElementById('viewedImage').style.display = 'none';
+                    document.getElementById('imageTitle').textContent = 'Error loading image';
+                    document.getElementById('imageInfo').innerHTML = `<p class="error">${error.message}</p>`;
+                });
+        });
+        
+        // Camera Test
+        document.getElementById('testCameraBtn').addEventListener('click', () => {
+            // Check if MediaDevices is supported
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                log('MediaDevices API not supported in this browser', 'error');
+                return;
+            }
+
+            log('Requesting camera access...');
+            
+            // Create an invisible file input to handle camera access
+            const fileInput = document.createElement('input');
+            fileInput.type = 'file';
+            fileInput.accept = 'image/*';
+            fileInput.capture = 'environment'; // Use back camera if available
+            
+            fileInput.addEventListener('change', (event) => {
+                if (event.target.files && event.target.files[0]) {
+                    const file = event.target.files[0];
+                    log(`Photo captured: ${file.name} (${(file.size / 1024).toFixed(2)} KB)`, 'success');
+                    
+                    const reader = new FileReader();
+                    reader.onload = function(e) {
+                        const previewImage = document.getElementById('previewImage');
+                        previewImage.src = e.target.result;
+                        previewImage.style.display = 'block';
+                        
+                        // Show original image
+                        const originalImage = document.getElementById('originalImage');
+                        originalImage.src = e.target.result;
+                        document.getElementById('originalSize').textContent = 
+                            `Size: ${(file.size / 1024).toFixed(2)} KB`;
+                            
+                        // Enable process button
+                        document.getElementById('processImageBtn').disabled = false;
+                    };
+                    reader.readAsDataURL(file);
+                }
+            });
+            
+            fileInput.click();
+        });
+        
+        document.getElementById('processImageBtn').addEventListener('click', () => {
+            const originalImage = document.getElementById('originalImage');
+            if (!originalImage.src) {
+                log('No image to process', 'error');
+                return;
+            }
+            
+            log('Processing image...');
+            
+            // Create a canvas to process the image
+            const canvas = document.createElement('canvas');
+            const img = new Image();
+            
+            img.onload = function() {
+                // Set max dimensions (adjust as needed)
+                const MAX_WIDTH = 800;
+                const MAX_HEIGHT = 800;
+                
+                let width = img.width;
+                let height = img.height;
+                
+                // Resize if needed
+                if (width > height) {
+                    if (width > MAX_WIDTH) {
+                        height *= MAX_WIDTH / width;
+                        width = MAX_WIDTH;
+                    }
+                } else {
+                    if (height > MAX_HEIGHT) {
+                        width *= MAX_HEIGHT / height;
+                        height = MAX_HEIGHT;
+                    }
+                }
+                
+                canvas.width = width;
+                canvas.height = height;
+                
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, width, height);
+                
+                try {
+                    // Try different quality levels for iOS
+                    let dataUrl;
+                    if (/iPhone|iPad|iPod/i.test(navigator.userAgent)) {
+                        log('iOS device detected, using lower quality', 'info');
+                        dataUrl = canvas.toDataURL('image/jpeg', 0.5);
+                    } else {
+                        dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+                    }
+                    
+                    // Display processed image
+                    const processedImage = document.getElementById('processedImage');
+                    processedImage.src = dataUrl;
+                    
+                    // Calculate size
+                    const base64Data = dataUrl.split(',')[1];
+                    const decodedData = atob(base64Data);
+                    const dataSize = decodedData.length;
+                    
+                    document.getElementById('processedSize').textContent = 
+                        `Size: ${(dataSize / 1024).toFixed(2)} KB`;
+                    
+                    log(`Image processed successfully. Size reduced to ${(dataSize / 1024).toFixed(2)} KB`, 'success');
+                    
+                    // Check for potential iOS issues
+                    if (/iPhone|iPad|iPod/i.test(navigator.userAgent)) {
+                        const base64TestRegex = /^[A-Za-z0-9+/]*={0,2}$/;
+                        const isValidBase64 = base64TestRegex.test(base64Data);
+                        
+                        if (!isValidBase64) {
+                            log('Warning: Generated base64 data may not be valid', 'error');
+                        }
+                    }
+                } catch (error) {
+                    log(`Error processing image: ${error.message}`, 'error');
+                }
+            };
+            
+            img.onerror = function() {
+                log('Error loading image for processing', 'error');
+            };
+            
+            img.src = originalImage.src;
+        });
+        
+        // Debug info
+        function loadDeviceInfo() {
+            const deviceInfo = document.getElementById('deviceInfo');
+            const info = {
+                'User Agent': navigator.userAgent,
+                'Platform': navigator.platform,
+                'Screen Size': `${window.screen.width}x${window.screen.height}`,
+                'Viewport Size': `${window.innerWidth}x${window.innerHeight}`,
+                'Device Pixel Ratio': window.devicePixelRatio,
+                'Cookies Enabled': navigator.cookieEnabled,
+                'Language': navigator.language,
+                'Is iOS': /iPhone|iPad|iPod/i.test(navigator.userAgent),
+                'Is Safari': /Safari/i.test(navigator.userAgent) && !/Chrome/i.test(navigator.userAgent)
+            };
+            
+            let infoHTML = '';
+            for (const [key, value] of Object.entries(info)) {
+                infoHTML += `<div><strong>${key}:</strong> ${value}</div>`;
+            }
+            
+            deviceInfo.innerHTML = infoHTML;
+            
+            // Log potential issues
+            if (info['Is iOS'] && info['Is Safari']) {
+                log('iOS Safari detected - there may be image handling limitations', 'info');
+            }
+        }
+        
+        // Base64 testing
+        document.getElementById('testBase64Btn').addEventListener('click', () => {
+            const testText = document.getElementById('testText').value;
+            if (!testText) {
+                log('Please enter text to test', 'error');
+                return;
+            }
+            
+            try {
+                // Encode
+                const encoded = btoa(testText);
+                
+                // Decode
+                const decoded = atob(encoded);
+                
+                // Display results
+                const results = document.getElementById('base64Results');
+                results.textContent = `Original: "${testText}"\nEncoded: ${encoded}\nDecoded: "${decoded}"\nEncoding/decoding ${testText === decoded ? 'successful' : 'failed'}`;
+                
+                log('Base64 test completed', 'success');
+            } catch (error) {
+                log(`Base64 test error: ${error.message}`, 'error');
+                document.getElementById('base64Results').textContent = `Error: ${error.message}`;
+            }
+        });
+        
+        // Clear log
+        document.getElementById('clearLogBtn').addEventListener('click', () => {
+            document.getElementById('logContainer').innerHTML = '';
+            log('Log cleared');
+        });
+        
+        // Initialize
+        window.onload = function() {
+            log('Image Debugger loaded');
+            loadDeviceInfo();
+        };
+    </script>
+</body>
+</html> 
