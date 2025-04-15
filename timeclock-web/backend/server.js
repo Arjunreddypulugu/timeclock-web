@@ -3,25 +3,13 @@ const express = require('express');
 const cors = require('cors');
 const sql = require('mssql');
 const cookieParser = require('cookie-parser');
-const multer = require('multer');
-const path = require('path');
-const fs = require('fs');
 
 const app = express();
 
-// Configure multer for file uploads
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: {
-    fileSize: 10 * 1024 * 1024, // 10MB max size
-  }
-});
-
 // Middleware
 app.use(cors());
-app.use(express.json({ limit: '20mb' })); // Increased limit for JSON
+app.use(express.json());
 app.use(cookieParser());
-app.use(express.urlencoded({ extended: true, limit: '20mb' })); // For form data
 
 // Database configuration
 const dbConfig = {
@@ -46,46 +34,6 @@ poolConnect.then(() => {
 }).catch(err => {
   console.error('Database connection failed:', err);
 });
-
-// Handle image data from different platforms
-const processImageData = (imageData, isIOS = false) => {
-  if (!imageData) return null;
-  
-  try {
-    console.log(`Processing image data (iOS mode: ${isIOS})`);
-    
-    let base64Data = imageData;
-    
-    // For iOS, the image may be just base64 without the data URL prefix
-    if (isIOS) {
-      // If it still has a prefix, strip it
-      if (base64Data.includes(',')) {
-        base64Data = base64Data.split(',')[1];
-      }
-      
-      // Clean the base64 string
-      base64Data = base64Data.replace(/[^A-Za-z0-9+/=]/g, '');
-      
-      // Add padding if needed
-      while (base64Data.length % 4 !== 0) {
-        base64Data += '=';
-      }
-    } 
-    // For other platforms, handle data URL format
-    else if (base64Data.startsWith('data:image/')) {
-      base64Data = base64Data.split(',')[1];
-    }
-    
-    // Create buffer from base64
-    const buffer = Buffer.from(base64Data, 'base64');
-    console.log(`Processed image size: ${buffer.length} bytes`);
-    
-    return buffer;
-  } catch (err) {
-    console.error(`Error processing image: ${err.message}`);
-    throw err;
-  }
-};
 
 // Get customer name from location
 app.post('/api/verify-location', async (req, res) => {
@@ -170,7 +118,7 @@ app.get('/api/user-status', async (req, res) => {
       `);
 
     res.json({
-      isNewUser: userDetails.recordset.length === 0,
+      isNewUser: false,
       hasOpenSession: openSession.recordset.length > 0,
       openSession: openSession.recordset[0] || null,
       userDetails: userDetails.recordset[0] || null
@@ -213,33 +161,27 @@ app.post('/api/register', async (req, res) => {
   }
 });
 
-// Clock in endpoint
+// Clock in
 app.post('/api/clock-in', async (req, res) => {
   try {
     await poolConnect;
-    console.log('Received clock-in request');
-    
-    const { subContractor, employee, number, lat, lon, cookie, notes, image, _ios } = req.body;
+    const { subContractor, employee, number, lat, lon, cookie, notes, image } = req.body;
 
-    // Validate required fields
-    if (!subContractor || !employee || !cookie) {
-      return res.status(400).json({ error: 'Missing required fields' });
-    }
-
-    // Process image if provided
+    // Process base64 image if provided
     let imageBuffer = null;
     if (image) {
       try {
-        // Check if the request is from iOS
-        imageBuffer = processImageData(image, !!_ios);
-        console.log(`Processed ${_ios ? 'iOS' : 'standard'} image: ${imageBuffer ? imageBuffer.length : 0} bytes`);
+        // Remove data:image/jpeg;base64, prefix
+        const base64Data = image.replace(/^data:image\/\w+;base64,/, '');
+        imageBuffer = Buffer.from(base64Data, 'base64');
+        console.log(`Received image for clock-in: ${imageBuffer.length} bytes`);
       } catch (imgErr) {
         console.error(`Error processing image: ${imgErr.message}`);
-        // Continue without image if there's an error
+        // Continue without the image if there's an error
       }
     }
-    
-    // First verify location is valid
+
+    // First verify location is valid before allowing clock in
     const validLocation = await pool.request()
       .input('lat', sql.Float, lat)
       .input('lon', sql.Float, lon)
@@ -248,11 +190,14 @@ app.post('/api/clock-in', async (req, res) => {
         FROM LocationCustomerMapping
         WHERE @lat BETWEEN min_latitude AND max_latitude
         AND (
+          -- Handle both possibilities for longitude storage (important for negative values)
           (@lon BETWEEN min_longitude AND max_longitude)
           OR 
           (@lon BETWEEN max_longitude AND min_longitude)
         )
       `);
+    
+    console.log(`Clock-in location check: lat=${lat}, lon=${lon}, found=${validLocation.recordset.length}`);
     
     if (validLocation.recordset.length === 0) {
       return res.status(400).json({ error: 'Invalid worksite location. Cannot clock in.' });
@@ -274,28 +219,26 @@ app.post('/api/clock-in', async (req, res) => {
     const request = pool.request()
       .input('subContractor', sql.NVarChar, subContractor)
       .input('employee', sql.NVarChar, employee)
-      .input('number', sql.NVarChar, number || '')
+      .input('number', sql.NVarChar, number)
       .input('lat', sql.Float, lat)
       .input('lon', sql.Float, lon)
       .input('cookie', sql.NVarChar, cookie)
       .input('notes', sql.NVarChar(sql.MAX), notes || '');
     
     // Only add image if it's valid
-    let hasImage = false;
     if (imageBuffer && imageBuffer.length > 0) {
       request.input('image', sql.VarBinary(sql.MAX), imageBuffer);
-      hasImage = true;
     }
     
     // Build the query dynamically based on whether we have an image
     let query = `
       INSERT INTO TimeClock (
         SubContractor, Employee, Number, ClockIn, Lat, Lon, Cookie, ClockInNotes
-        ${hasImage ? ', ClockInImage' : ''}
+        ${imageBuffer && imageBuffer.length > 0 ? ', ClockInImage' : ''}
       )
       VALUES (
         @subContractor, @employee, @number, GETDATE(), @lat, @lon, @cookie, @notes
-        ${hasImage ? ', @image' : ''}
+        ${imageBuffer && imageBuffer.length > 0 ? ', @image' : ''}
       );
       SELECT SCOPE_IDENTITY() as id;
     `;
@@ -307,8 +250,7 @@ app.post('/api/clock-in', async (req, res) => {
     res.json({ 
       id: result.recordset[0].id, 
       customer_name: validLocation.recordset[0].customer_name,
-      imageIncluded: hasImage,
-      platform: _ios ? 'ios' : 'other'
+      imageIncluded: !!(imageBuffer && imageBuffer.length > 0)
     });
   } catch (err) {
     console.error(`Clock in error: ${err.message}`);
@@ -317,29 +259,23 @@ app.post('/api/clock-in', async (req, res) => {
   }
 });
 
-// Clock out endpoint
+// Clock out
 app.post('/api/clock-out', async (req, res) => {
   try {
     await poolConnect;
-    console.log('Received clock-out request');
-    
-    const { id, cookie, notes, image, _ios } = req.body;
+    const { cookie, notes, image } = req.body;
 
-    // Validate required fields
-    if (!cookie) {
-      return res.status(400).json({ error: 'Missing cookie for clock-out' });
-    }
-
-    // Process image if provided
+    // Process base64 image if provided
     let imageBuffer = null;
     if (image) {
       try {
-        // Check if the request is from iOS
-        imageBuffer = processImageData(image, !!_ios);
-        console.log(`Processed ${_ios ? 'iOS' : 'standard'} image: ${imageBuffer ? imageBuffer.length : 0} bytes`);
+        // Remove data:image/jpeg;base64, prefix
+        const base64Data = image.replace(/^data:image\/\w+;base64,/, '');
+        imageBuffer = Buffer.from(base64Data, 'base64');
+        console.log(`Received image for clock-out: ${imageBuffer.length} bytes`);
       } catch (imgErr) {
-        console.error(`Error processing image: ${imgErr.message}`);
-        // Continue without image if there's an error
+        console.error(`Error processing clock-out image: ${imgErr.message}`);
+        // Continue without the image if there's an error
       }
     }
 
@@ -349,10 +285,8 @@ app.post('/api/clock-out', async (req, res) => {
       .input('notes', sql.NVarChar(sql.MAX), notes || '');
     
     // Only add image if it's valid
-    let hasImage = false;
     if (imageBuffer && imageBuffer.length > 0) {
       request.input('image', sql.VarBinary(sql.MAX), imageBuffer);
-      hasImage = true;
     }
     
     // Build the query dynamically based on whether we have an image
@@ -360,7 +294,7 @@ app.post('/api/clock-out', async (req, res) => {
       UPDATE TimeClock 
       SET ClockOut = GETDATE(),
           ClockOutNotes = @notes
-          ${hasImage ? ', ClockOutImage = @image' : ''}
+          ${imageBuffer && imageBuffer.length > 0 ? ', ClockOutImage = @image' : ''}
       WHERE Cookie = @cookie AND ClockOut IS NULL;
       
       SELECT @@ROWCOUNT as updated;
@@ -376,8 +310,7 @@ app.post('/api/clock-out', async (req, res) => {
 
     res.json({ 
       success: true,
-      imageIncluded: hasImage,
-      platform: _ios ? 'ios' : 'other'
+      imageIncluded: !!(imageBuffer && imageBuffer.length > 0)
     });
   } catch (err) {
     console.error(`Clock out error: ${err.message}`);
@@ -389,26 +322,23 @@ app.post('/api/clock-out', async (req, res) => {
 // Test image upload endpoint
 app.post('/api/test-image', async (req, res) => {
   try {
+    const { image } = req.body;
     console.log('Test image endpoint called');
-    const { image, _ios } = req.body;
     
     if (!image) {
-      return res.status(400).json({ 
-        success: false, 
-        error: 'No image provided' 
-      });
+      return res.status(400).json({ success: false, error: 'No image provided' });
     }
     
-    // Process image
+    // Process base64 image
     try {
-      const imageBuffer = processImageData(image, !!_ios);
-      console.log(`Test image processed (${_ios ? 'iOS' : 'standard'}): ${imageBuffer.length} bytes`);
+      const base64Data = image.replace(/^data:image\/\w+;base64,/, '');
+      const imageBuffer = Buffer.from(base64Data, 'base64');
+      console.log(`Test image processed: ${imageBuffer.length} bytes`);
       
       // Just for testing, we'll echo back some info but not store it
       res.json({ 
         success: true, 
         imageSize: imageBuffer.length,
-        platform: _ios ? 'ios' : 'other',
         message: 'Image successfully processed'
       });
     } catch (imgErr) {
@@ -420,10 +350,7 @@ app.post('/api/test-image', async (req, res) => {
     }
   } catch (err) {
     console.error(`Test image endpoint error: ${err.message}`);
-    res.status(500).json({ 
-      success: false, 
-      error: err.message 
-    });
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 
@@ -531,16 +458,6 @@ app.get('/api/subcontractor-links', async (req, res) => {
     console.error(`Error fetching subcontractor links: ${err.message}`);
     res.status(500).json({ error: err.message });
   }
-});
-
-// Add error handling middleware
-app.use((err, req, res, next) => {
-  console.error('Unhandled error:', err);
-  res.status(500).json({ 
-    error: 'An unexpected error occurred',
-    message: err.message,
-    stack: process.env.NODE_ENV === 'production' ? undefined : err.stack
-  });
 });
 
 const PORT = process.env.PORT || 5000;

@@ -10,8 +10,8 @@ import Camera from './components/Camera';
 import Button from './components/Button';
 import { verifyLocation, getUserStatus, registerUser, clockIn, clockOut } from './services/api';
 
-// TEMPORARILY DISABLE access restriction for debugging
-const ACCESS_RESTRICTED = false;
+// Add this constant at the top, outside of the function to prevent access without proper link
+const ACCESS_RESTRICTED = true;
 
 function App() {
   const [cookieId, setCookieId] = useState('');
@@ -39,50 +39,41 @@ function App() {
   const [clockOutImage, setClockOutImage] = useState('');
   const [captureMode, setCaptureMode] = useState(''); // 'clockIn' or 'clockOut'
 
-  // Application initialization & parameter handling
   useEffect(() => {
-    console.log('App initializing, checking for parameters...');
+    // Check for subcontractor parameter in URL
+    const params = new URLSearchParams(window.location.search);
+    const encodedSubcontractor = params.get('sc');
     
-    try {
-      // Check for subcontractor parameter in URL
-      const params = new URLSearchParams(window.location.search);
-      const encodedSubcontractor = params.get('sc');
-      
-      if (encodedSubcontractor) {
-        try {
-          // Decode the base64 parameter
-          const decodedSubcontractor = atob(encodedSubcontractor);
-          setSubContractor(decodedSubcontractor);
-          console.log('Auto-filled subcontractor:', decodedSubcontractor);
-        } catch (err) {
-          console.error('Error decoding subcontractor parameter:', err);
-          if (ACCESS_RESTRICTED) {
-            setError('Invalid access link. Please use a valid subcontractor link.');
-            return;
-          }
+    if (encodedSubcontractor) {
+      try {
+        // Decode the base64 parameter
+        const decodedSubcontractor = atob(encodedSubcontractor);
+        setSubContractor(decodedSubcontractor);
+        console.log('Auto-filled subcontractor:', decodedSubcontractor);
+      } catch (err) {
+        console.error('Error decoding subcontractor parameter:', err);
+        if (ACCESS_RESTRICTED) {
+          setError('Invalid access link. Please use a valid subcontractor link.');
+          setRedirectToHome(true);
+          return;
         }
-      } else if (ACCESS_RESTRICTED) {
-        console.log('Access restricted and no SC parameter found');
-        setError('Access restricted. Please use a proper subcontractor link to access this application.');
-        return;
       }
-      
-      // Generate cookie ID if not exists
-      const storedCookieId = localStorage.getItem('timeclockCookieId');
-      if (storedCookieId) {
-        console.log('Found existing cookie ID:', storedCookieId);
-        setCookieId(storedCookieId);
-        checkUserStatus(storedCookieId);
-      } else {
-        const newCookieId = 'tc-' + Date.now();
-        console.log('Creating new cookie ID:', newCookieId);
-        localStorage.setItem('timeclockCookieId', newCookieId);
-        setCookieId(newCookieId);
-        setIsNewUser(true);
-      }
-    } catch (error) {
-      console.error('Error in initialization:', error);
-      setError('Application initialization error: ' + (error.message || 'Unknown error'));
+    } else if (ACCESS_RESTRICTED) {
+      setError('Access restricted. Please use a proper subcontractor link to access this application.');
+      setRedirectToHome(true);
+      return;
+    }
+    
+    // Generate cookie ID if not exists
+    const storedCookieId = localStorage.getItem('timeclockCookieId');
+    if (storedCookieId) {
+      setCookieId(storedCookieId);
+      checkUserStatus(storedCookieId);
+    } else {
+      const newCookieId = 'tc-' + Date.now();
+      localStorage.setItem('timeclockCookieId', newCookieId);
+      setCookieId(newCookieId);
+      setIsNewUser(true);
     }
   }, []);
 
@@ -190,15 +181,6 @@ function App() {
       setLoading(true);
       console.log('Starting clock-in process...');
       
-      // Add more validation
-      if (!location.lat || !location.lon) {
-        throw new Error('Location data is missing. Please share your location and try again.');
-      }
-      
-      if (!customerName || customerName === 'Unknown location') {
-        throw new Error('Valid worksite location is required. Please try again.');
-      }
-      
       const clockInData = {
         subContractor: userDetails?.SubContractor || subContractor,
         employee: userDetails?.Employee || employeeName,
@@ -212,17 +194,31 @@ function App() {
       
       console.log(`Sending clock-in data for ${clockInData.employee} at location ${location.lat},${location.lon}`);
       
-      const response = await clockIn(clockInData);
-      console.log('Clock-in response:', response);
-      
-      if (response.id) {
-        setNotes('');
-        setClockInImage('');
-        setShowCamera(false);
-        console.log('Successfully clocked in with ID:', response.id);
-        checkUserStatus(cookieId);
-      } else if (response.error) {
-        setError('Clock in failed: ' + response.error);
+      try {
+        const response = await clockIn(clockInData);
+        console.log('Clock-in response:', response);
+        
+        if (response.id) {
+          setNotes('');
+          setClockInImage('');
+          setShowCamera(false);
+          console.log('Successfully clocked in with ID:', response.id);
+          checkUserStatus(cookieId);
+        } else if (response.error) {
+          setError('Clock in failed: ' + response.error);
+        }
+      } catch (apiError) {
+        console.error('Clock in API error:', apiError);
+        
+        // Provide user-friendly error message
+        if (apiError.message.includes('non-JSON response')) {
+          setError('Server communication error. Please try again or refresh the page.');
+        } else {
+          setError('Clock in failed: ' + (apiError.message || 'Unknown error'));
+        }
+        
+        // Reset camera state if there was an error
+        setCaptureMode('clockIn');
       }
     } catch (err) {
       console.error('Clock in error:', err);
@@ -248,30 +244,37 @@ function App() {
       setLoading(true);
       console.log('Starting clock-out process...');
       
-      if (!openSession) {
-        throw new Error('No active session found. Please refresh and try again.');
-      }
-      
       const clockOutData = {
-        id: openSession.ID,
         cookie: cookieId,
         notes,
         image: clockOutImage
       };
       
-      console.log(`Sending clock-out data for session ${clockOutData.id}`);
-      
-      const response = await clockOut(clockOutData);
-      console.log('Clock-out response:', response);
-      
-      if (response.success) {
-        setNotes('');
-        setClockOutImage('');
-        setShowCamera(false);
-        console.log('Successfully clocked out');
-        checkUserStatus(cookieId);
-      } else if (response.error) {
-        setError('Clock out failed: ' + response.error);
+      try {
+        const response = await clockOut(clockOutData);
+        console.log('Clock-out response:', response);
+        
+        if (response.success) {
+          setNotes('');
+          setClockOutImage('');
+          setShowCamera(false);
+          console.log('Successfully clocked out');
+          checkUserStatus(cookieId);
+        } else if (response.error) {
+          setError('Clock out failed: ' + response.error);
+        }
+      } catch (apiError) {
+        console.error('Clock out API error:', apiError);
+        
+        // Provide user-friendly error message
+        if (apiError.message.includes('non-JSON response')) {
+          setError('Server communication error. Please try again or refresh the page.');
+        } else {
+          setError('Clock out failed: ' + (apiError.message || 'Unknown error'));
+        }
+        
+        // Reset camera state if there was an error
+        setCaptureMode('clockOut');
       }
     } catch (err) {
       console.error('Clock out error:', err);
@@ -310,46 +313,68 @@ function App() {
   return (
     <ThemeProvider theme={theme}>
       <GlobalStyles />
-      <Layout error={error} loading={loading}>
+      <Layout error={error} loading={false}>
         {showCamera ? (
-          <Camera
-            onCapture={handleCaptureImage}
-            onClose={cancelCapture}
-            mode={captureMode}
-          />
+          <div>
+            <h2>{captureMode === 'clockIn' ? 'Take Clock-In Photo' : 'Take Clock-Out Photo'}</h2>
+            <Camera 
+              onCapture={handleCaptureImage}
+              onClear={() => handleCaptureImage('')}
+            />
+            <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center' }}>
+              <Button 
+                variant="secondary" 
+                onClick={cancelCapture}
+              >
+                Cancel
+              </Button>
+              <Button 
+                variant="primary" 
+                onClick={captureMode === 'clockIn' ? handleClockIn : handleClockOut}
+                disabled={
+                  (captureMode === 'clockIn' && !clockInImage) || 
+                  (captureMode === 'clockOut' && !clockOutImage)
+                }
+              >
+                {captureMode === 'clockIn' ? 'Complete Clock In' : 'Complete Clock Out'}
+              </Button>
+            </div>
+          </div>
         ) : (
           <>
+            <LocationCard 
+              location={location}
+              customerName={customerName}
+              subContractor={subContractor}
+              handleShareLocation={handleShareLocation}
+              loading={loading}
+            />
+            
             {isNewUser ? (
-              <RegistrationForm
+              <RegistrationForm 
+                handleRegister={handleRegister}
+                loading={loading}
                 subContractor={subContractor}
                 setSubContractor={setSubContractor}
                 employeeName={employeeName}
                 setEmployeeName={setEmployeeName}
                 phoneNumber={phoneNumber}
                 setPhoneNumber={setPhoneNumber}
-                onSubmit={handleRegister}
               />
             ) : (
-              <>
-                {!location.lat || !location.lon ? (
-                  <LocationCard onShareLocation={handleShareLocation} subContractor={subContractor} />
-                ) : (
-                  <TimeClockCard
-                    customerName={customerName}
-                    subContractor={subContractor}
-                    hasOpenSession={hasOpenSession}
-                    onClockIn={startClockIn}
-                    onClockOut={startClockOut}
-                    onTakePhoto={handleCaptureImage}
-                    clockInImage={clockInImage}
-                    clockOutImage={clockOutImage}
-                    notes={notes}
-                    setNotes={setNotes}
-                    handleClockIn={handleClockIn}
-                    handleClockOut={handleClockOut}
-                  />
-                )}
-              </>
+              <TimeClockCard 
+                hasOpenSession={hasOpenSession}
+                openSession={openSession}
+                userDetails={userDetails}
+                handleClockIn={startClockIn}
+                handleClockOut={startClockOut}
+                notes={notes}
+                setNotes={setNotes}
+                loading={loading}
+                location={location}
+                customerName={customerName}
+                subContractor={subContractor}
+              />
             )}
           </>
         )}

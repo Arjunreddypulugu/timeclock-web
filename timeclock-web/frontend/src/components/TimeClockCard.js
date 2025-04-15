@@ -1,317 +1,161 @@
-import React, { useState, useEffect } from 'react';
-import { Box, Card, CardContent, Typography, Button, CircularProgress, Snackbar, Alert } from '@mui/material';
-import styled from '@emotion/styled';
-import Camera from './Camera';
-import { clockIn, clockOut, checkUserStatus, isIOS } from '../services/api';
-import ErrorMessage from './ErrorMessage';
+import React from 'react';
+import styled, { keyframes } from 'styled-components';
+import Card from './Card';
+import Button from './Button';
+import TextArea from './TextArea';
 
-// Styled components
-const StyledCard = styled(Card)(({ theme }) => ({
-  margin: theme.spacing(2),
-  padding: theme.spacing(2),
-  boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-  borderRadius: '12px',
-  backgroundColor: theme.palette.background.paper,
-  transition: 'transform 0.3s ease, box-shadow 0.3s ease',
-  '&:hover': {
-    transform: 'translateY(-5px)',
-    boxShadow: '0 8px 20px rgba(0,0,0,0.2)',
+const fadeIn = keyframes`
+  from {
+    opacity: 0;
+    transform: translateY(10px);
   }
-}));
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+`;
 
-const ContentWrapper = styled(Box)({
-  padding: '20px',
-  display: 'flex',
-  flexDirection: 'column',
-  alignItems: 'center',
-});
+const Container = styled.div`
+  animation: ${fadeIn} 0.5s ease-out;
+`;
 
-const StatusDisplay = styled(Box)({
-  marginTop: '15px',
-  marginBottom: '20px',
-  padding: '10px 15px',
-  borderRadius: '8px',
-  width: '100%',
-  textAlign: 'center',
-});
+const WelcomeMessage = styled.div`
+  color: ${props => props.theme.colors.accent};
+  font-family: ${props => props.theme.fonts.heading};
+  font-size: ${props => props.theme.fontSizes['2xl']};
+  font-weight: 600;
+  text-align: center;
+  margin-bottom: ${props => props.theme.space.lg};
+`;
 
-const TimeClockCard = ({ 
-  userId, 
-  locationData, 
-  customerName, 
-  subContractor,
-  onRefreshUserStatus
+const ClockInfo = styled.div`
+  background-color: ${props => props.theme.colors.background.secondary};
+  border-radius: ${props => props.theme.radii.md};
+  padding: ${props => props.theme.space.md};
+  margin-bottom: ${props => props.theme.space.md};
+  
+  p {
+    font-size: ${props => props.theme.fontSizes.lg};
+    color: ${props => props.theme.colors.text.primary};
+    text-align: center;
+    margin: 0;
+    
+    span {
+      font-weight: 600;
+      color: ${props => props.theme.colors.primary};
+    }
+  }
+`;
+
+const TimeElapsed = styled.div`
+  text-align: center;
+  font-family: ${props => props.theme.fonts.heading};
+  font-size: ${props => props.theme.fontSizes['3xl']};
+  font-weight: 700;
+  color: ${props => props.theme.colors.primary};
+  margin: ${props => props.theme.space.md} 0;
+  padding: ${props => props.theme.space.md};
+  background-color: rgba(15, 76, 129, 0.1);
+  border-radius: ${props => props.theme.radii.md};
+`;
+
+const Hint = styled.p`
+  font-size: ${props => props.theme.fontSizes.sm};
+  color: ${props => props.theme.colors.text.secondary};
+  text-align: center;
+  margin-top: ${props => props.theme.space.md};
+  font-style: italic;
+`;
+
+const TimeClockCard = ({
+  hasOpenSession,
+  openSession,
+  userDetails,
+  handleClockIn,
+  handleClockOut,
+  notes,
+  setNotes,
+  loading,
+  location,
+  customerName,
+  subContractor
 }) => {
-  const [status, setStatus] = useState('loading'); // 'loading', 'clocked-in', 'clocked-out'
-  const [showCamera, setShowCamera] = useState(false);
-  const [isClockedIn, setIsClockedIn] = useState(false);
-  const [lastClockIn, setLastClockIn] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-  const [successMessage, setSuccessMessage] = useState('');
-  const [recordId, setRecordId] = useState(null);
-  const [capturedImage, setCapturedImage] = useState(null);
-  const [action, setAction] = useState(null); // 'in' or 'out'
-  
-  // Check if the user is clocked in
-  useEffect(() => {
-    if (userId) {
-      fetchUserStatus();
-    }
-  }, [userId]);
-  
-  const fetchUserStatus = async () => {
-    try {
-      setStatus('loading');
-      const result = await checkUserStatus(userId);
-      
-      if (result.success) {
-        setIsClockedIn(result.isClockedIn);
-        setLastClockIn(result.lastClockIn);
-        setStatus(result.isClockedIn ? 'clocked-in' : 'clocked-out');
-        if (result.isClockedIn && result.currentRecord) {
-          setRecordId(result.currentRecord.id);
-        }
-      } else {
-        setStatus('clocked-out');
-        setError(result.message || 'Error checking status');
-      }
-    } catch (err) {
-      console.error('Error checking user status:', err);
-      setStatus('clocked-out');
-      setError('Failed to check clock status');
-    }
+  const formatTimestamp = (timestamp) => {
+    if (!timestamp) return '';
+    const date = new Date(timestamp);
+    return date.toLocaleString('en-US', {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: 'numeric',
+      hour12: true
+    });
   };
   
-  const handleClockIn = async (imageData) => {
-    setShowCamera(false);
-    setLoading(true);
-    setError(null);
-    setAction('in');
-    
-    try {
-      console.log('Starting clock-in process');
-      
-      // Check if we have location data
-      if (!locationData || !locationData.latitude || !locationData.longitude) {
-        throw new Error('Location data is missing or invalid');
-      }
-      
-      // Additional logging for iOS devices
-      if (isIOS()) {
-        console.log('iOS device detected, image data length:', imageData.length);
-      }
-      
-      // Process the request
-      const result = await clockIn({
-        userId,
-        latitude: locationData.latitude,
-        longitude: locationData.longitude,
-        customerName: customerName || 'Unknown',
-        subContractor: subContractor || '',
-        imageData,
-        isIOS: isIOS() // Tell the backend if this is iOS
-      });
-      
-      if (result.success) {
-        setIsClockedIn(true);
-        setStatus('clocked-in');
-        setLastClockIn(new Date().toISOString());
-        setSuccessMessage('Successfully clocked in!');
-        setRecordId(result.data.recordId);
-        
-        // Refresh user status in parent component
-        if (onRefreshUserStatus) {
-          onRefreshUserStatus();
-        }
-      } else {
-        setError(result.message || 'Failed to clock in');
-      }
-    } catch (err) {
-      console.error('Clock in error:', err);
-      setError(err.message || 'Failed to clock in');
-    } finally {
-      setLoading(false);
-    }
-  };
-  
-  const handleClockOut = async (imageData) => {
-    setShowCamera(false);
-    setLoading(true);
-    setError(null);
-    setAction('out');
-    
-    try {
-      console.log('Starting clock-out process');
-      
-      // Check if we have location data
-      if (!locationData || !locationData.latitude || !locationData.longitude) {
-        throw new Error('Location data is missing or invalid');
-      }
-      
-      // Process the request
-      const result = await clockOut({
-        userId,
-        latitude: locationData.latitude,
-        longitude: locationData.longitude,
-        imageData,
-        isIOS: isIOS() // Tell the backend if this is iOS
-      });
-      
-      if (result.success) {
-        setIsClockedIn(false);
-        setStatus('clocked-out');
-        setSuccessMessage('Successfully clocked out!');
-        setRecordId(null);
-        setCapturedImage(null);
-        
-        // Refresh user status in parent component
-        if (onRefreshUserStatus) {
-          onRefreshUserStatus();
-        }
-      } else {
-        setError(result.message || 'Failed to clock out');
-      }
-    } catch (err) {
-      console.error('Clock out error:', err);
-      setError(err.message || 'Failed to clock out');
-    } finally {
-      setLoading(false);
-    }
-  };
-  
-  const handleCameraCapture = (imageData) => {
-    console.log('Camera captured image, length:', imageData.length);
-    
-    if (status === 'clocked-out') {
-      handleClockIn(imageData);
-    } else {
-      handleClockOut(imageData);
-    }
-  };
-  
-  const handleCameraCancel = () => {
-    setShowCamera(false);
-  };
-  
-  const handleCloseSnackbar = () => {
-    setSuccessMessage('');
-    setError(null);
-  };
-
-  if (status === 'loading') {
-    return (
-      <StyledCard>
-        <CardContent>
-          <ContentWrapper>
-            <CircularProgress />
-            <Typography variant="body2" sx={{ mt: 2 }}>
-              Checking status...
-            </Typography>
-          </ContentWrapper>
-        </CardContent>
-      </StyledCard>
-    );
-  }
-
   return (
-    <>
-      <StyledCard>
-        <CardContent>
-          <Typography variant="h5" component="h2" textAlign="center" gutterBottom>
-            Time Clock
-          </Typography>
-          
-          {customerName && (
-            <Typography variant="body1" textAlign="center" gutterBottom>
-              Location: {customerName}
-            </Typography>
-          )}
-          
-          {subContractor && (
-            <Typography variant="body2" textAlign="center" color="textSecondary" gutterBottom>
-              Subcontractor: {subContractor}
-            </Typography>
-          )}
-          
-          <StatusDisplay 
-            sx={{ 
-              bgcolor: status === 'clocked-in' ? 'rgba(76, 175, 80, 0.1)' : 'rgba(255, 152, 0, 0.1)',
-              color: status === 'clocked-in' ? 'success.main' : 'warning.main',
-            }}
-          >
-            <Typography variant="h6" component="p">
-              {status === 'clocked-in' ? 'Currently Clocked In' : 'Currently Clocked Out'}
-            </Typography>
+    <Card>
+      <Container>
+        <WelcomeMessage>
+          Welcome back, {userDetails?.Employee || ''}!
+        </WelcomeMessage>
+        
+        {hasOpenSession ? (
+          <>
+            <ClockInfo>
+              <p>You clocked in at: <span>{formatTimestamp(openSession?.ClockIn)}</span></p>
+              {subContractor && <p>Subcontractor: <span>{subContractor}</span></p>}
+            </ClockInfo>
             
-            {lastClockIn && status === 'clocked-in' && (
-              <Typography variant="body2" color="textSecondary">
-                Since: {new Date(lastClockIn).toLocaleString()}
-              </Typography>
-            )}
-          </StatusDisplay>
-          
-          {showCamera ? (
-            <Camera 
-              onCapture={handleCameraCapture} 
-              onCancel={handleCameraCancel} 
+            <TextArea
+              label="Clock-out Notes"
+              id="clockOutNotes"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Enter any notes for your clock-out..."
             />
-          ) : (
-            <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2 }}>
-              <Button 
-                variant="contained" 
-                color={status === 'clocked-in' ? 'secondary' : 'primary'}
-                onClick={() => setShowCamera(true)}
-                disabled={loading || !locationData}
-                sx={{ minWidth: '180px' }}
-              >
-                {loading ? (
-                  <CircularProgress size={24} color="inherit" />
-                ) : (
-                  status === 'clocked-in' ? 'Clock Out' : 'Clock In'
-                )}
-              </Button>
-            </Box>
-          )}
-          
-          {!locationData && (
-            <Typography 
-              variant="body2" 
-              color="error" 
-              textAlign="center" 
-              sx={{ mt: 2 }}
+            
+            <Button
+              variant="danger"
+              fullWidth
+              size="large"
+              onClick={handleClockOut}
+              disabled={loading}
             >
-              Location data is required. Please enable location services.
-            </Typography>
-          )}
-          
-          {capturedImage && (
-            <Box mt={2}>
-              <Typography variant="subtitle2" gutterBottom>
-                Last Image Captured:
-              </Typography>
-              <img src={capturedImage} alt="Captured" style={{ maxWidth: '100%', borderRadius: '8px', border: '1px solid #ddd' }} />
-            </Box>
-          )}
-        </CardContent>
-      </StyledCard>
-      
-      <Snackbar 
-        open={!!error || !!successMessage} 
-        autoHideDuration={6000} 
-        onClose={handleCloseSnackbar}
-      >
-        {error ? (
-          <Alert severity="error" onClose={handleCloseSnackbar}>
-            {error}
-          </Alert>
+              {loading ? 'Processing...' : 'Clock Out'}
+            </Button>
+          </>
         ) : (
-          <Alert severity="success" onClose={handleCloseSnackbar}>
-            {successMessage}
-          </Alert>
+          <>
+            <TextArea
+              label="Clock-in Notes"
+              id="clockInNotes"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Enter any notes for your clock-in..."
+            />
+            
+            <Button
+              variant="success"
+              fullWidth
+              size="large"
+              onClick={handleClockIn}
+              disabled={loading || !location.lat || !location.lon || !customerName || customerName === 'Unknown location'}
+            >
+              {loading ? 'Processing...' : 'Clock In'}
+            </Button>
+            
+            {(!location.lat || !location.lon) && (
+              <Hint>Please share your location to clock in</Hint>
+            )}
+            
+            {(location.lat && location.lon && (!customerName || customerName === 'Unknown location')) && (
+              <Hint>You must be at a valid worksite to clock in</Hint>
+            )}
+          </>
         )}
-      </Snackbar>
-    </>
+      </Container>
+    </Card>
   );
 };
 
