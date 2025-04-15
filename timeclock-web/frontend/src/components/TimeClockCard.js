@@ -1,373 +1,317 @@
 import React, { useState, useEffect } from 'react';
-import styled, { keyframes } from 'styled-components';
-import Card from './Card';
-import Button from './Button';
-import { clockIn, clockOut } from '../services/api';
+import { Box, Card, CardContent, Typography, Button, CircularProgress, Snackbar, Alert } from '@mui/material';
+import styled from '@emotion/styled';
 import Camera from './Camera';
-import IOSImageCapture from './IOSImageCapture';
+import { clockIn, clockOut, checkUserStatus, isIOS } from '../services/api';
+import ErrorMessage from './ErrorMessage';
 
-const fadeIn = keyframes`
-  from {
-    opacity: 0;
-    transform: translateY(10px);
+// Styled components
+const StyledCard = styled(Card)(({ theme }) => ({
+  margin: theme.spacing(2),
+  padding: theme.spacing(2),
+  boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+  borderRadius: '12px',
+  backgroundColor: theme.palette.background.paper,
+  transition: 'transform 0.3s ease, box-shadow 0.3s ease',
+  '&:hover': {
+    transform: 'translateY(-5px)',
+    boxShadow: '0 8px 20px rgba(0,0,0,0.2)',
   }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-`;
+}));
 
-const Container = styled.div`
-  animation: ${fadeIn} 0.5s ease-out;
-`;
+const ContentWrapper = styled(Box)({
+  padding: '20px',
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'center',
+});
 
-const WelcomeMessage = styled.div`
-  color: ${props => props.theme.colors.accent};
-  font-family: ${props => props.theme.fonts.heading};
-  font-size: ${props => props.theme.fontSizes['2xl']};
-  font-weight: 600;
-  text-align: center;
-  margin-bottom: ${props => props.theme.space.lg};
-`;
+const StatusDisplay = styled(Box)({
+  marginTop: '15px',
+  marginBottom: '20px',
+  padding: '10px 15px',
+  borderRadius: '8px',
+  width: '100%',
+  textAlign: 'center',
+});
 
-const ClockInfo = styled.div`
-  background-color: ${props => props.theme.colors.background.secondary};
-  border-radius: ${props => props.theme.radii.md};
-  padding: ${props => props.theme.space.md};
-  margin-bottom: ${props => props.theme.space.md};
-  
-  p {
-    font-size: ${props => props.theme.fontSizes.lg};
-    color: ${props => props.theme.colors.text.primary};
-    text-align: center;
-    margin: 0;
-    
-    span {
-      font-weight: 600;
-      color: ${props => props.theme.colors.primary};
-    }
-  }
-`;
-
-const TimeElapsed = styled.div`
-  text-align: center;
-  font-family: ${props => props.theme.fonts.heading};
-  font-size: ${props => props.theme.fontSizes['3xl']};
-  font-weight: 700;
-  color: ${props => props.theme.colors.primary};
-  margin: ${props => props.theme.space.md} 0;
-  padding: ${props => props.theme.space.md};
-  background-color: rgba(15, 76, 129, 0.1);
-  border-radius: ${props => props.theme.radii.md};
-`;
-
-const ErrorMessage = styled.div`
-  background-color: ${props => props.theme.colors.danger?.light || '#ffeeee'};
-  color: ${props => props.theme.colors.danger?.dark || '#cc0000'};
-  padding: ${props => props.theme.space.sm};
-  border-radius: ${props => props.theme.radii.md};
-  margin-bottom: ${props => props.theme.space.md};
-  text-align: center;
-  font-size: ${props => props.theme.fontSizes.sm};
-`;
-
-const Hint = styled.p`
-  font-size: ${props => props.theme.fontSizes.sm};
-  color: ${props => props.theme.colors.text.secondary};
-  text-align: center;
-  margin-top: ${props => props.theme.space.md};
-  font-style: italic;
-`;
-
-/**
- * TimeClockCard component for handling clock-in and clock-out functionality
- */
-const TimeClockCard = ({
-  location,
-  customerName,
+const TimeClockCard = ({ 
+  userId, 
+  locationData, 
+  customerName, 
   subContractor,
-  loading: externalLoading
+  onRefreshUserStatus
 }) => {
-  // State
-  const [isIOS, setIsIOS] = useState(false);
+  const [status, setStatus] = useState('loading'); // 'loading', 'clocked-in', 'clocked-out'
   const [showCamera, setShowCamera] = useState(false);
-  const [isClockingIn, setIsClockingIn] = useState(false);
-  const [isClockingOut, setIsClockingOut] = useState(false);
   const [isClockedIn, setIsClockedIn] = useState(false);
-  const [clockInTime, setClockInTime] = useState('');
+  const [lastClockIn, setLastClockIn] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [successMessage, setSuccessMessage] = useState('');
   const [recordId, setRecordId] = useState(null);
-  const [error, setError] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-  const [skipImages, setSkipImages] = useState(false);
-  const [userId, setUserId] = useState('');
+  const [capturedImage, setCapturedImage] = useState(null);
+  const [action, setAction] = useState(null); // 'in' or 'out'
   
-  // Initialization
+  // Check if the user is clocked in
   useEffect(() => {
-    // Load user ID from localStorage
-    const storedUserId = localStorage.getItem('userId');
-    if (storedUserId) {
-      setUserId(storedUserId);
+    if (userId) {
+      fetchUserStatus();
     }
-    
-    // Check if user is already clocked in
-    const storedIsClockedIn = localStorage.getItem('isClockedIn') === 'true';
-    const storedClockInTime = localStorage.getItem('clockInTime');
-    const storedRecordId = localStorage.getItem('recordId');
-    
-    setIsClockedIn(storedIsClockedIn);
-    setClockInTime(storedClockInTime || '');
-    setRecordId(storedRecordId || null);
-    
-    // Detect iOS devices
-    const userAgent = navigator.userAgent || navigator.vendor || window.opera;
-    const isIOSDevice = /iPad|iPhone|iPod/.test(userAgent) && !window.MSStream;
-    setIsIOS(isIOSDevice);
-    
-    // If we've had previous image errors on iOS, skip images by default
-    const hadImageErrors = localStorage.getItem('hadImageErrors') === 'true';
-    if (isIOSDevice && hadImageErrors) {
-      setSkipImages(true);
-    }
-    
-    console.log(`Device detected: ${isIOSDevice ? 'iOS' : 'Non-iOS'}`);
-  }, []);
-
-  // Format timestamp for display
-  const formatTimestamp = (timestamp) => {
-    if (!timestamp) return '';
-    const date = new Date(timestamp);
-    return date.toLocaleString('en-US', {
-      weekday: 'short',
-      month: 'short',
-      day: 'numeric',
-      hour: 'numeric',
-      minute: 'numeric',
-      hour12: true
-    });
-  };
-
-  // Handle clock-in button click
-  const handleClockInClick = async () => {
-    console.log('Clock In initiated');
-    setIsClockingIn(true);
-    setError('');
-    
-    try {
-      // Show camera component for photo capture
-      setShowCamera(true);
-    } catch (error) {
-      console.error('Clock in error:', error);
-      setError('Error starting camera: ' + (error.message || 'Unknown error'));
-      setIsClockingIn(false);
-    }
-  };
+  }, [userId]);
   
-  // Handle clock-out button click
-  const handleClockOutClick = async () => {
-    console.log('Clock Out initiated');
-    setIsClockingOut(true);
-    setError('');
-    
+  const fetchUserStatus = async () => {
     try {
-      // Show camera component for photo capture
-      setShowCamera(true);
-    } catch (error) {
-      console.error('Clock out error:', error);
-      setError('Error starting camera: ' + (error.message || 'Unknown error'));
-      setIsClockingOut(false);
-    }
-  };
-  
-  // Handle camera capture result
-  const handleCameraCapture = async (imageData) => {
-    try {
-      console.log('Image captured, processing...');
+      setStatus('loading');
+      const result = await checkUserStatus(userId);
       
-      if (isClockingIn) {
-        await processClockIn(imageData);
-      } else if (isClockingOut) {
-        await processClockOut(imageData);
+      if (result.success) {
+        setIsClockedIn(result.isClockedIn);
+        setLastClockIn(result.lastClockIn);
+        setStatus(result.isClockedIn ? 'clocked-in' : 'clocked-out');
+        if (result.isClockedIn && result.currentRecord) {
+          setRecordId(result.currentRecord.id);
+        }
+      } else {
+        setStatus('clocked-out');
+        setError(result.message || 'Error checking status');
       }
-    } catch (error) {
-      console.error('Error processing image:', error);
-      setError('Error processing image: ' + (error.message || 'Unknown error'));
-    } finally {
-      setShowCamera(false);
-      setIsClockingIn(false);
-      setIsClockingOut(false);
+    } catch (err) {
+      console.error('Error checking user status:', err);
+      setStatus('clocked-out');
+      setError('Failed to check clock status');
     }
   };
   
-  // Handle camera cancellation
-  const handleCameraCancel = () => {
+  const handleClockIn = async (imageData) => {
     setShowCamera(false);
-    setIsClockingIn(false);
-    setIsClockingOut(false);
-  };
-  
-  // Process clock-in with captured image
-  const processClockIn = async (imageData) => {
-    setIsLoading(true);
+    setLoading(true);
+    setError(null);
+    setAction('in');
     
     try {
-      console.log('Processing clock in with image data');
+      console.log('Starting clock-in process');
       
-      // Get current position for location
-      const position = await new Promise((resolve, reject) => {
-        navigator.geolocation.getCurrentPosition(resolve, reject, {
-          enableHighAccuracy: true,
-          timeout: 10000,
-          maximumAge: 0
-        });
+      // Check if we have location data
+      if (!locationData || !locationData.latitude || !locationData.longitude) {
+        throw new Error('Location data is missing or invalid');
+      }
+      
+      // Additional logging for iOS devices
+      if (isIOS()) {
+        console.log('iOS device detected, image data length:', imageData.length);
+      }
+      
+      // Process the request
+      const result = await clockIn({
+        userId,
+        latitude: locationData.latitude,
+        longitude: locationData.longitude,
+        customerName: customerName || 'Unknown',
+        subContractor: subContractor || '',
+        imageData,
+        isIOS: isIOS() // Tell the backend if this is iOS
       });
       
-      const { latitude, longitude } = position.coords;
-      
-      // Submit to API
-      const response = await clockIn(
-        userId, 
-        customerName, 
-        latitude, 
-        longitude, 
-        imageData, 
-        subContractor
-      );
-      
-      if (response && response.success) {
+      if (result.success) {
         setIsClockedIn(true);
-        setClockInTime(response.data.clockInTime);
-        setRecordId(response.data.recordId);
+        setStatus('clocked-in');
+        setLastClockIn(new Date().toISOString());
+        setSuccessMessage('Successfully clocked in!');
+        setRecordId(result.data.recordId);
         
-        // Save to localStorage
-        localStorage.setItem('isClockedIn', 'true');
-        localStorage.setItem('clockInTime', response.data.clockInTime);
-        localStorage.setItem('recordId', response.data.recordId);
-        
-        console.log('Successfully clocked in');
+        // Refresh user status in parent component
+        if (onRefreshUserStatus) {
+          onRefreshUserStatus();
+        }
       } else {
-        console.error('Clock in API returned error:', response?.error);
-        setError(response?.error || 'Failed to clock in. Please try again.');
+        setError(result.message || 'Failed to clock in');
       }
-    } catch (error) {
-      console.error('Clock in processing error:', error);
-      setError('Error clocking in: ' + (error.message || 'Unknown error'));
+    } catch (err) {
+      console.error('Clock in error:', err);
+      setError(err.message || 'Failed to clock in');
     } finally {
-      setIsLoading(false);
+      setLoading(false);
     }
   };
   
-  // Process clock-out with captured image
-  const processClockOut = async (imageData) => {
-    setIsLoading(true);
+  const handleClockOut = async (imageData) => {
+    setShowCamera(false);
+    setLoading(true);
+    setError(null);
+    setAction('out');
     
     try {
-      console.log('Processing clock out with image data');
+      console.log('Starting clock-out process');
       
-      // Submit to API
-      const response = await clockOut(recordId, imageData);
-      
-      if (response && response.success) {
-        setIsClockedIn(false);
-        setClockInTime('');
-        setRecordId(null);
-        
-        // Clear localStorage
-        localStorage.removeItem('isClockedIn');
-        localStorage.removeItem('clockInTime');
-        localStorage.removeItem('recordId');
-        
-        console.log('Successfully clocked out');
-      } else {
-        console.error('Clock out API returned error:', response?.error);
-        setError(response?.error || 'Failed to clock out. Please try again.');
+      // Check if we have location data
+      if (!locationData || !locationData.latitude || !locationData.longitude) {
+        throw new Error('Location data is missing or invalid');
       }
-    } catch (error) {
-      console.error('Clock out processing error:', error);
-      setError('Error clocking out: ' + (error.message || 'Unknown error'));
+      
+      // Process the request
+      const result = await clockOut({
+        userId,
+        latitude: locationData.latitude,
+        longitude: locationData.longitude,
+        imageData,
+        isIOS: isIOS() // Tell the backend if this is iOS
+      });
+      
+      if (result.success) {
+        setIsClockedIn(false);
+        setStatus('clocked-out');
+        setSuccessMessage('Successfully clocked out!');
+        setRecordId(null);
+        setCapturedImage(null);
+        
+        // Refresh user status in parent component
+        if (onRefreshUserStatus) {
+          onRefreshUserStatus();
+        }
+      } else {
+        setError(result.message || 'Failed to clock out');
+      }
+    } catch (err) {
+      console.error('Clock out error:', err);
+      setError(err.message || 'Failed to clock out');
     } finally {
-      setIsLoading(false);
+      setLoading(false);
     }
   };
-
-  // Toggle skipping images (for iOS troubleshooting)
-  const toggleSkipImages = () => {
-    setSkipImages(!skipImages);
-    localStorage.setItem('hadImageErrors', (!skipImages).toString());
+  
+  const handleCameraCapture = (imageData) => {
+    console.log('Camera captured image, length:', imageData.length);
+    
+    if (status === 'clocked-out') {
+      handleClockIn(imageData);
+    } else {
+      handleClockOut(imageData);
+    }
+  };
+  
+  const handleCameraCancel = () => {
+    setShowCamera(false);
+  };
+  
+  const handleCloseSnackbar = () => {
+    setSuccessMessage('');
+    setError(null);
   };
 
+  if (status === 'loading') {
+    return (
+      <StyledCard>
+        <CardContent>
+          <ContentWrapper>
+            <CircularProgress />
+            <Typography variant="body2" sx={{ mt: 2 }}>
+              Checking status...
+            </Typography>
+          </ContentWrapper>
+        </CardContent>
+      </StyledCard>
+    );
+  }
+
   return (
-    <Container>
-      <Card>
-        <WelcomeMessage>
-          {isClockedIn ? 'Currently Working' : 'Ready to Start Work?'}
-        </WelcomeMessage>
-        
-        {error && (
-          <ErrorMessage>
-            {error}
-          </ErrorMessage>
-        )}
-        
-        {isClockedIn && (
-          <ClockInfo>
-            <p>You clocked in at <span>{formatTimestamp(clockInTime)}</span></p>
-          </ClockInfo>
-        )}
-        
-        {showCamera ? (
-          <>
-            {isIOS ? (
-              <IOSImageCapture 
-                onCapture={handleCameraCapture}
-                onCancel={handleCameraCancel}
-              />
-            ) : (
-              <Camera 
-                onCapture={handleCameraCapture}
-                onClear={handleCameraCancel}
-              />
-            )}
-          </>
-        ) : (
-          <>
-            {isClockedIn ? (
-              <Button 
-                onClick={handleClockOutClick} 
-                primary={false} 
-                danger 
-                full
-                disabled={isLoading || externalLoading}
-              >
-                {isLoading ? 'Processing...' : 'Clock Out'}
-              </Button>
-            ) : (
-              <Button 
-                onClick={handleClockInClick} 
-                primary 
-                full
-                disabled={isLoading || externalLoading}
-              >
-                {isLoading ? 'Processing...' : 'Clock In'}
-              </Button>
-            )}
+    <>
+      <StyledCard>
+        <CardContent>
+          <Typography variant="h5" component="h2" textAlign="center" gutterBottom>
+            Time Clock
+          </Typography>
+          
+          {customerName && (
+            <Typography variant="body1" textAlign="center" gutterBottom>
+              Location: {customerName}
+            </Typography>
+          )}
+          
+          {subContractor && (
+            <Typography variant="body2" textAlign="center" color="textSecondary" gutterBottom>
+              Subcontractor: {subContractor}
+            </Typography>
+          )}
+          
+          <StatusDisplay 
+            sx={{ 
+              bgcolor: status === 'clocked-in' ? 'rgba(76, 175, 80, 0.1)' : 'rgba(255, 152, 0, 0.1)',
+              color: status === 'clocked-in' ? 'success.main' : 'warning.main',
+            }}
+          >
+            <Typography variant="h6" component="p">
+              {status === 'clocked-in' ? 'Currently Clocked In' : 'Currently Clocked Out'}
+            </Typography>
             
-            {isIOS && (
-              <Hint>
-                Using iOS device: {skipImages ? 'Image capture disabled' : 'Optimized mode enabled'}
-                <Button 
-                  onClick={toggleSkipImages}
-                  secondary 
-                  small
-                  style={{ marginLeft: '10px' }}
-                >
-                  {skipImages ? 'Enable Images' : 'Disable Images'}
-                </Button>
-              </Hint>
+            {lastClockIn && status === 'clocked-in' && (
+              <Typography variant="body2" color="textSecondary">
+                Since: {new Date(lastClockIn).toLocaleString()}
+              </Typography>
             )}
-          </>
+          </StatusDisplay>
+          
+          {showCamera ? (
+            <Camera 
+              onCapture={handleCameraCapture} 
+              onCancel={handleCameraCancel} 
+            />
+          ) : (
+            <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2 }}>
+              <Button 
+                variant="contained" 
+                color={status === 'clocked-in' ? 'secondary' : 'primary'}
+                onClick={() => setShowCamera(true)}
+                disabled={loading || !locationData}
+                sx={{ minWidth: '180px' }}
+              >
+                {loading ? (
+                  <CircularProgress size={24} color="inherit" />
+                ) : (
+                  status === 'clocked-in' ? 'Clock Out' : 'Clock In'
+                )}
+              </Button>
+            </Box>
+          )}
+          
+          {!locationData && (
+            <Typography 
+              variant="body2" 
+              color="error" 
+              textAlign="center" 
+              sx={{ mt: 2 }}
+            >
+              Location data is required. Please enable location services.
+            </Typography>
+          )}
+          
+          {capturedImage && (
+            <Box mt={2}>
+              <Typography variant="subtitle2" gutterBottom>
+                Last Image Captured:
+              </Typography>
+              <img src={capturedImage} alt="Captured" style={{ maxWidth: '100%', borderRadius: '8px', border: '1px solid #ddd' }} />
+            </Box>
+          )}
+        </CardContent>
+      </StyledCard>
+      
+      <Snackbar 
+        open={!!error || !!successMessage} 
+        autoHideDuration={6000} 
+        onClose={handleCloseSnackbar}
+      >
+        {error ? (
+          <Alert severity="error" onClose={handleCloseSnackbar}>
+            {error}
+          </Alert>
+        ) : (
+          <Alert severity="success" onClose={handleCloseSnackbar}>
+            {successMessage}
+          </Alert>
         )}
-      </Card>
-    </Container>
+      </Snackbar>
+    </>
   );
 };
 
