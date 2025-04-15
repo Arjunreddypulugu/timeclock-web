@@ -167,17 +167,34 @@ app.post('/api/clock-in', async (req, res) => {
     await poolConnect;
     const { subContractor, employee, number, lat, lon, cookie, notes, image } = req.body;
 
+    // Validate required fields
+    if (!subContractor || !employee || !cookie) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
     // Process base64 image if provided
     let imageBuffer = null;
     if (image) {
       try {
-        // Remove data:image/jpeg;base64, prefix
-        const base64Data = image.replace(/^data:image\/\w+;base64,/, '');
+        // Handle different image data formats
+        let base64Data = image;
+        if (base64Data.startsWith('data:image/')) {
+          base64Data = base64Data.split(',')[1];
+        } else {
+          // If it's already base64 without prefix
+          base64Data = base64Data.replace(/^data:image\/\w+;base64,/, '');
+        }
+        
         imageBuffer = Buffer.from(base64Data, 'base64');
         console.log(`Received image for clock-in: ${imageBuffer.length} bytes`);
+        
+        // Validate image size
+        if (imageBuffer.length < 100) {
+          console.warn('Very small image received, might be invalid');
+        }
       } catch (imgErr) {
         console.error(`Error processing image: ${imgErr.message}`);
-        // Continue without the image if there's an error
+        return res.status(400).json({ error: `Image processing failed: ${imgErr.message}` });
       }
     }
 
@@ -263,19 +280,36 @@ app.post('/api/clock-in', async (req, res) => {
 app.post('/api/clock-out', async (req, res) => {
   try {
     await poolConnect;
-    const { cookie, notes, image } = req.body;
+    const { id, cookie, notes, image } = req.body;
+
+    // Validate required fields
+    if (!id && !cookie) {
+      return res.status(400).json({ error: 'Missing ID or cookie for clock-out' });
+    }
 
     // Process base64 image if provided
     let imageBuffer = null;
     if (image) {
       try {
-        // Remove data:image/jpeg;base64, prefix
-        const base64Data = image.replace(/^data:image\/\w+;base64,/, '');
+        // Handle different image data formats
+        let base64Data = image;
+        if (base64Data.startsWith('data:image/')) {
+          base64Data = base64Data.split(',')[1];
+        } else {
+          // If it's already base64 without prefix
+          base64Data = base64Data.replace(/^data:image\/\w+;base64,/, '');
+        }
+        
         imageBuffer = Buffer.from(base64Data, 'base64');
         console.log(`Received image for clock-out: ${imageBuffer.length} bytes`);
+        
+        // Validate image size
+        if (imageBuffer.length < 100) {
+          console.warn('Very small image received, might be invalid');
+        }
       } catch (imgErr) {
-        console.error(`Error processing clock-out image: ${imgErr.message}`);
-        // Continue without the image if there's an error
+        console.error(`Error processing image: ${imgErr.message}`);
+        return res.status(400).json({ error: `Image processing failed: ${imgErr.message}` });
       }
     }
 

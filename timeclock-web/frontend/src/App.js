@@ -181,6 +181,15 @@ function App() {
       setLoading(true);
       console.log('Starting clock-in process...');
       
+      // Add more validation
+      if (!location.lat || !location.lon) {
+        throw new Error('Location data is missing. Please share your location and try again.');
+      }
+      
+      if (!customerName || customerName === 'Unknown location') {
+        throw new Error('Valid worksite location is required. Please try again.');
+      }
+      
       const clockInData = {
         subContractor: userDetails?.SubContractor || subContractor,
         employee: userDetails?.Employee || employeeName,
@@ -230,13 +239,18 @@ function App() {
       setLoading(true);
       console.log('Starting clock-out process...');
       
+      if (!openSession) {
+        throw new Error('No active session found. Please refresh and try again.');
+      }
+      
       const clockOutData = {
+        id: openSession.ID,
         cookie: cookieId,
         notes,
         image: clockOutImage
       };
       
-      console.log(`Sending clock-out data for cookie ${cookieId}`);
+      console.log(`Sending clock-out data for session ${clockOutData.id}`);
       
       const response = await clockOut(clockOutData);
       console.log('Clock-out response:', response);

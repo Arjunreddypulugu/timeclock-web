@@ -111,19 +111,14 @@ const Camera = ({ onCapture, onClear }) => {
     const context = canvas.getContext('2d');
     context.drawImage(video, 0, 0, canvas.width, canvas.height);
     
-    // Convert to data URL and then to Blob
-    canvas.toBlob(blob => {
-      const imageUrl = URL.createObjectURL(blob);
-      setCapturedImage(imageUrl);
-      
-      // Convert blob to base64 for API sending
-      const reader = new FileReader();
-      reader.readAsDataURL(blob);
-      reader.onloadend = () => {
-        const base64data = reader.result;
-        onCapture(base64data);
-      };
-    }, 'image/jpeg', 0.7); // JPEG format with 70% quality
+    try {
+      // Get base64 data directly from canvas - more reliable across browsers
+      const base64data = canvas.toDataURL('image/jpeg', 0.8);
+      setCapturedImage(base64data);
+      onCapture(base64data);
+    } catch (err) {
+      console.error('Error capturing photo:', err);
+    }
   };
 
   const retakePhoto = () => {

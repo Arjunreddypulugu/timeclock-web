@@ -47,13 +47,32 @@ export const clockIn = async (clockInData) => {
   try {
     console.log('API clockIn called with data:', {...clockInData, image: '(image data omitted)'});
     
+    // Create a safe copy of the data with properly handled image
+    const safeData = {...clockInData};
+    
+    // Ensure image is properly formatted for all browsers
+    if (safeData.image && typeof safeData.image === 'string') {
+      // Make sure image has the correct data URI prefix
+      if (!safeData.image.startsWith('data:image/')) {
+        safeData.image = 'data:image/jpeg;base64,' + safeData.image.replace(/^data:image\/\w+;base64,/, '');
+      }
+    }
+    
     const response = await fetch(`${API_URL}/clock-in`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(clockInData),
+      body: JSON.stringify(safeData),
     });
+    
+    // Check for non-JSON responses (which cause the error)
+    const contentType = response.headers.get('content-type');
+    if (!contentType || !contentType.includes('application/json')) {
+      const text = await response.text();
+      console.error('Non-JSON response:', text);
+      throw new Error('Server returned invalid format. Please try again.');
+    }
     
     const data = await response.json();
     console.log('API clockIn response:', data);
@@ -73,13 +92,32 @@ export const clockOut = async (clockOutData) => {
   try {
     console.log('API clockOut called with data:', {...clockOutData, image: '(image data omitted)'});
     
+    // Create a safe copy of the data with properly handled image
+    const safeData = {...clockOutData};
+    
+    // Ensure image is properly formatted for all browsers
+    if (safeData.image && typeof safeData.image === 'string') {
+      // Make sure image has the correct data URI prefix
+      if (!safeData.image.startsWith('data:image/')) {
+        safeData.image = 'data:image/jpeg;base64,' + safeData.image.replace(/^data:image\/\w+;base64,/, '');
+      }
+    }
+    
     const response = await fetch(`${API_URL}/clock-out`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(clockOutData),
+      body: JSON.stringify(safeData),
     });
+    
+    // Check for non-JSON responses (which cause the error)
+    const contentType = response.headers.get('content-type');
+    if (!contentType || !contentType.includes('application/json')) {
+      const text = await response.text();
+      console.error('Non-JSON response:', text);
+      throw new Error('Server returned invalid format. Please try again.');
+    }
     
     const data = await response.json();
     console.log('API clockOut response:', data);
