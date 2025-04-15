@@ -216,9 +216,14 @@ app.post('/api/clock-in', async (req, res) => {
       .input('lon', sql.Float, lon)
       .query(`
         SELECT TOP 1 customer_name
-        FROM WorksiteLocations
-        WHERE 
-          (POWER((lat - @lat) * 111000, 2) + POWER((lon - @lon) * 111000 * COS(@lat * 0.018), 2)) <= POWER(radius, 2)
+        FROM LocationCustomerMapping
+        WHERE @lat BETWEEN min_latitude AND max_latitude
+        AND (
+          -- Handle both possibilities for longitude storage (important for negative values)
+          (@lon BETWEEN min_longitude AND max_longitude)
+          OR 
+          (@lon BETWEEN max_longitude AND min_longitude)
+        )
       `);
     
     console.log(`Clock-in location check: lat=${lat}, lon=${lon}, found=${validLocation.recordset.length}`);
