@@ -55,12 +55,33 @@ const ButtonContainer = styled.div`
   gap: ${props => props.theme.space.sm};
 `;
 
+const ErrorMessage = styled.div`
+  color: red;
+  margin-bottom: 1rem;
+  text-align: center;
+  padding: 0.5rem;
+  background: rgba(255,200,200,0.2);
+  border-radius: 4px;
+`;
+
 const Camera = ({ onCapture, onClear }) => {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const [stream, setStream] = useState(null);
   const [capturedImage, setCapturedImage] = useState(null);
   const [cameraError, setCameraError] = useState('');
+  const [isIOS, setIsIOS] = useState(false);
+  
+  // Check for iOS device
+  useEffect(() => {
+    const checkIsIOS = () => {
+      const userAgent = navigator.userAgent.toLowerCase();
+      return /iphone|ipad|ipod/.test(userAgent);
+    };
+    
+    setIsIOS(checkIsIOS());
+    console.log('Device check - Is iOS:', checkIsIOS());
+  }, []);
 
   // Initialize camera on component mount
   useEffect(() => {
@@ -74,13 +95,24 @@ const Camera = ({ onCapture, onClear }) => {
     try {
       setCameraError('');
       
-      // Basic constraints - no fancy options that might not be supported
+      // Custom constraints based on device
       const constraints = {
-        video: true,
+        video: isIOS ? 
+          { // iOS specific constraints
+            facingMode: 'user',
+            width: { ideal: 320 },
+            height: { ideal: 240 }
+          } : 
+          { // Default constraints for other devices
+            facingMode: 'user',
+            width: { ideal: 640 },
+            height: { ideal: 480 }
+          },
         audio: false
       };
       
-      console.log('Requesting camera access with constraints:', constraints);
+      console.log('Requesting camera access with constraints:', JSON.stringify(constraints));
+      
       const mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
       
       // Successfully got camera access
@@ -90,10 +122,20 @@ const Camera = ({ onCapture, onClear }) => {
       if (videoRef.current) {
         videoRef.current.srcObject = mediaStream;
         console.log('Video element connected to stream');
+        
+        // For iOS, we need to manually play the video
+        if (isIOS) {
+          try {
+            await videoRef.current.play();
+            console.log('Video playback started manually (iOS)');
+          } catch (playErr) {
+            console.error('Error starting video playback:', playErr);
+          }
+        }
       }
     } catch (err) {
       console.error('Error accessing camera:', err);
-      setCameraError(`Could not access camera: ${err.message}`);
+      setCameraError(`Could not access camera: ${err.message}. Please check camera permissions.`);
     }
   };
 
@@ -118,9 +160,9 @@ const Camera = ({ onCapture, onClear }) => {
     const canvas = canvasRef.current;
     
     try {
-      // Keep resolution small for compatibility
-      const width = 640;
-      const height = 480;
+      // Use smaller dimensions for iOS to ensure it works
+      const width = isIOS ? 320 : 640;
+      const height = isIOS ? 240 : 480;
       
       canvas.width = width;
       canvas.height = height;
@@ -131,17 +173,30 @@ const Camera = ({ onCapture, onClear }) => {
       
       console.log('Image captured and drawn to canvas');
       
-      // Convert to data URL with low quality JPEG to ensure compatibility
-      const base64data = canvas.toDataURL('image/jpeg', 0.5);
+      // Use lower quality for iOS
+      const imageQuality = isIOS ? 0.4 : 0.6;
+      
+      // Convert to data URL with appropriate quality setting
+      const base64data = canvas.toDataURL('image/jpeg', imageQuality);
       console.log('Image converted to data URL, size:', base64data.length);
       
-      // Safety check for image data
-      if (base64data && base64data.startsWith('data:image/')) {
-        setCapturedImage(base64data);
-        onCapture(base64data);
-        console.log('Image successfully captured and set');
+      // For iOS, we need to make sure the image isn't too large
+      if (isIOS && base64data.length > 100000) {
+        console.log('Image is too large for iOS, reducing quality further');
+        // Further reduce quality for iOS if image is large
+        const reducedImage = canvas.toDataURL('image/jpeg', 0.1);
+        setCapturedImage(reducedImage);
+        onCapture(reducedImage);
+        console.log('Reduced image quality for iOS, new size:', reducedImage.length);
       } else {
-        throw new Error('Invalid image data generated');
+        // Safety check for image data
+        if (base64data && base64data.startsWith('data:image/')) {
+          setCapturedImage(base64data);
+          onCapture(base64data);
+          console.log('Image successfully captured and set');
+        } else {
+          throw new Error('Invalid image data generated');
+        }
       }
     } catch (err) {
       console.error('Error capturing photo:', err);
@@ -175,9 +230,14 @@ const Camera = ({ onCapture, onClear }) => {
       </VideoContainer>
       
       {cameraError && (
-        <div style={{ color: 'red', marginBottom: '1rem' }}>
+        <ErrorMessage>
           {cameraError}
-        </div>
+          {isIOS && (
+            <div style={{ marginTop: '0.5rem' }}>
+              <strong>iOS Tips:</strong> Make sure camera permissions are enabled and try refreshing the page.
+            </div>
+          )}
+        </ErrorMessage>
       )}
       
       <ButtonContainer>

@@ -1,6 +1,12 @@
 // Use environment variable if available, otherwise default to localhost
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
 
+// Detect if device is iOS
+const isIOS = () => {
+  const userAgent = navigator.userAgent.toLowerCase();
+  return /iphone|ipad|ipod/.test(userAgent);
+};
+
 // Helper function to safely process image data before sending to API
 const prepareImageData = (imageData) => {
   if (!imageData) return null;
@@ -71,71 +77,146 @@ export const registerUser = async (userData) => {
   }
 };
 
+// Helper function to convert Data URL to Blob - with iOS handling
+function dataURLtoBlob(dataURL) {
+  try {
+    // Handle both formats of data URL
+    const splitDataURL = dataURL.split(',');
+    if (splitDataURL.length !== 2) {
+      throw new Error('Invalid data URL format');
+    }
+    
+    // Get MIME type from the data URL
+    const mimeMatch = splitDataURL[0].match(/:(.*?);/);
+    if (!mimeMatch) {
+      throw new Error('Could not extract MIME type');
+    }
+    
+    const mimeString = mimeMatch[1];
+    const byteString = atob(splitDataURL[1]);
+    
+    // Create ArrayBuffer
+    const ab = new ArrayBuffer(byteString.length);
+    const ia = new Uint8Array(ab);
+    
+    // Convert binary string to ArrayBuffer
+    for (let i = 0; i < byteString.length; i++) {
+      ia[i] = byteString.charCodeAt(i);
+    }
+    
+    // Special handling for iOS - limit blob size
+    if (isIOS() && ab.byteLength > 1000000) {
+      console.warn('Image too large for iOS, may encounter issues');
+    }
+    
+    // Create and return blob 
+    const blob = new Blob([ab], { type: mimeString });
+    
+    // Log blob size for debugging
+    console.log(`Created blob of type ${mimeString}, size: ${blob.size} bytes`);
+    
+    return blob;
+  } catch (error) {
+    console.error('Failed to convert data URL to blob:', error);
+    throw error;
+  }
+}
+
+// Helper function to create form data - iOS friendly
+async function createFormDataWithImage(jsonData, imageData, fileName) {
+  const formData = new FormData();
+  
+  // Add JSON data
+  formData.append('data', JSON.stringify(jsonData));
+  
+  // Add image if present
+  if (imageData) {
+    try {
+      // For iOS, we'll use a different approach if blob creation fails
+      let imageBlob;
+      try {
+        imageBlob = dataURLtoBlob(imageData);
+      } catch (blobError) {
+        console.error('Blob creation failed, using fallback for iOS', blobError);
+        
+        // iOS fallback - use fetch to convert data URL to blob
+        const response = await fetch(imageData);
+        imageBlob = await response.blob();
+        console.log('Used fetch API to create blob instead');
+      }
+      
+      // Add blob to form data
+      formData.append('image', imageBlob, fileName);
+      console.log(`Image added to form data, name: ${fileName}`);
+    } catch (error) {
+      console.error('Failed to add image to form data:', error);
+      throw error;
+    }
+  }
+  
+  return formData;
+}
+
 export const clockIn = async (clockInData) => {
   try {
     console.log('API clockIn called with data:', {...clockInData, image: '(image data omitted)'});
     
-    // Create a safe copy of the data
+    // Create a safe copy of the data 
     const safeData = {...clockInData};
-    delete safeData.image; // Remove image from the request data
+    const imageData = safeData.image;
+    delete safeData.image; // Remove image from JSON data
     
-    // Safely handle the image
-    const formData = new FormData();
-    
-    // Add the JSON data
-    formData.append('data', JSON.stringify(safeData));
-    
-    // Add the image as a separate part if it exists
-    if (clockInData.image) {
-      try {
-        // Convert data URL to blob for more reliable transfer
-        const imageBlob = dataURLtoBlob(clockInData.image);
-        formData.append('image', imageBlob, 'clock-in.jpg');
-        console.log('Added image to form data as blob');
-      } catch (imgErr) {
-        console.error('Failed to convert image to blob:', imgErr);
-        // Fallback: Try to send as base64 in JSON
-        safeData.image = clockInData.image;
-      }
-    }
-    
-    // Determine if we're using multipart or JSON based on whether the image conversion worked
-    let response;
-    if (formData.has('image')) {
-      // Send as multipart form data (more reliable for binary data)
-      response = await fetch(`${API_URL}/clock-in-multipart`, {
+    // iOS often has issues with large payloads, so we'll always try to use FormData
+    try {
+      // Try to use FormData with Blob for all devices
+      const formData = await createFormDataWithImage(safeData, imageData, 'clock-in.jpg');
+      
+      console.log('Using multipart form data for clock-in');
+      const response = await fetch(`${API_URL}/clock-in-multipart`, {
         method: 'POST',
-        body: formData,
+        body: formData
       });
-    } else {
-      // Fallback to JSON
-      response = await fetch(`${API_URL}/clock-in`, {
+      
+      // Handle different response types
+      const contentType = response.headers.get('content-type');
+      if (contentType && contentType.includes('application/json')) {
+        const data = await response.json();
+        console.log('API clockIn response:', data);
+        
+        if (!response.ok) {
+          throw new Error(data.error || `Server error: ${response.status}`);
+        }
+        
+        return data;
+      } else {
+        const text = await response.text();
+        console.error('Non-JSON response:', text);
+        throw new Error('Server returned invalid format. Please try again.');
+      }
+    } catch (multipartError) {
+      // If multipart fails, fall back to JSON
+      console.error('Multipart request failed, falling back to JSON:', multipartError);
+      
+      // For fallback, we'll use base64 in JSON
+      const fallbackData = {...safeData, image: imageData};
+      
+      const response = await fetch(`${API_URL}/clock-in`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(safeData),
+        body: JSON.stringify(fallbackData)
       });
+      
+      const data = await response.json();
+      console.log('API clockIn response (JSON fallback):', data);
+      
+      if (!response.ok) {
+        throw new Error(data.error || `Server error: ${response.status}`);
+      }
+      
+      return data;
     }
-    
-    // Handle different response types
-    let data;
-    const contentType = response.headers.get('content-type');
-    if (contentType && contentType.includes('application/json')) {
-      data = await response.json();
-    } else {
-      const text = await response.text();
-      console.error('Non-JSON response:', text);
-      throw new Error('Server returned invalid format. Please try again.');
-    }
-    
-    console.log('API clockIn response:', data);
-    
-    if (!response.ok) {
-      throw new Error(data.error || `Server error: ${response.status}`);
-    }
-    
-    return data;
   } catch (error) {
     console.error('Clock in API error:', error);
     throw error;
@@ -148,93 +229,65 @@ export const clockOut = async (clockOutData) => {
     
     // Create a safe copy of the data
     const safeData = {...clockOutData};
-    delete safeData.image; // Remove image from the request data
+    const imageData = safeData.image;
+    delete safeData.image; // Remove image from JSON data
     
-    // Safely handle the image
-    const formData = new FormData();
-    
-    // Add the JSON data
-    formData.append('data', JSON.stringify(safeData));
-    
-    // Add the image as a separate part if it exists
-    if (clockOutData.image) {
-      try {
-        // Convert data URL to blob for more reliable transfer
-        const imageBlob = dataURLtoBlob(clockOutData.image);
-        formData.append('image', imageBlob, 'clock-out.jpg');
-        console.log('Added image to form data as blob');
-      } catch (imgErr) {
-        console.error('Failed to convert image to blob:', imgErr);
-        // Fallback: Try to send as base64 in JSON
-        safeData.image = clockOutData.image;
-      }
-    }
-    
-    // Determine if we're using multipart or JSON based on whether the image conversion worked
-    let response;
-    if (formData.has('image')) {
-      // Send as multipart form data (more reliable for binary data)
-      response = await fetch(`${API_URL}/clock-out-multipart`, {
+    // iOS often has issues with large payloads, so we'll always try to use FormData
+    try {
+      // Try to use FormData with Blob for all devices
+      const formData = await createFormDataWithImage(safeData, imageData, 'clock-out.jpg');
+      
+      console.log('Using multipart form data for clock-out');
+      const response = await fetch(`${API_URL}/clock-out-multipart`, {
         method: 'POST',
-        body: formData,
+        body: formData
       });
-    } else {
-      // Fallback to JSON
-      response = await fetch(`${API_URL}/clock-out`, {
+      
+      // Handle different response types
+      const contentType = response.headers.get('content-type');
+      if (contentType && contentType.includes('application/json')) {
+        const data = await response.json();
+        console.log('API clockOut response:', data);
+        
+        if (!response.ok) {
+          throw new Error(data.error || `Server error: ${response.status}`);
+        }
+        
+        return data;
+      } else {
+        const text = await response.text();
+        console.error('Non-JSON response:', text);
+        throw new Error('Server returned invalid format. Please try again.');
+      }
+    } catch (multipartError) {
+      // If multipart fails, fall back to JSON
+      console.error('Multipart request failed, falling back to JSON:', multipartError);
+      
+      // For fallback, we'll use base64 in JSON
+      const fallbackData = {...safeData, image: imageData};
+      
+      const response = await fetch(`${API_URL}/clock-out`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(safeData),
+        body: JSON.stringify(fallbackData)
       });
+      
+      const data = await response.json();
+      console.log('API clockOut response (JSON fallback):', data);
+      
+      if (!response.ok) {
+        throw new Error(data.error || `Server error: ${response.status}`);
+      }
+      
+      return data;
     }
-    
-    // Handle different response types
-    let data;
-    const contentType = response.headers.get('content-type');
-    if (contentType && contentType.includes('application/json')) {
-      data = await response.json();
-    } else {
-      const text = await response.text();
-      console.error('Non-JSON response:', text);
-      throw new Error('Server returned invalid format. Please try again.');
-    }
-    
-    console.log('API clockOut response:', data);
-    
-    if (!response.ok) {
-      throw new Error(data.error || `Server error: ${response.status}`);
-    }
-    
-    return data;
   } catch (error) {
     console.error('Clock out API error:', error);
     throw error;
   }
 };
-
-// Helper function to convert Data URL to Blob
-function dataURLtoBlob(dataURL) {
-  // Convert base64 to raw binary data held in a string
-  const byteString = atob(dataURL.split(',')[1]);
-  
-  // Get the MIME type
-  const mimeString = dataURL.split(',')[0].split(':')[1].split(';')[0];
-  
-  // Create an array buffer
-  const ab = new ArrayBuffer(byteString.length);
-  
-  // Create a view into the buffer
-  const ia = new Uint8Array(ab);
-  
-  // Set the bytes to the buffer
-  for (let i = 0; i < byteString.length; i++) {
-    ia[i] = byteString.charCodeAt(i);
-  }
-  
-  // Create and return the blob
-  return new Blob([ab], { type: mimeString });
-}
 
 export const getTimeEntries = async (employeeId) => {
   try {
@@ -250,11 +303,9 @@ export const testImageUpload = async (imageData) => {
   try {
     console.log('Testing image upload...');
     
-    // Create a FormData object
-    const formData = new FormData();
-    
+    // Try multipart upload first
     try {
-      // Convert data URL to blob
+      const formData = new FormData();
       const imageBlob = dataURLtoBlob(imageData);
       formData.append('image', imageBlob, 'test-image.jpg');
       
@@ -264,13 +315,13 @@ export const testImageUpload = async (imageData) => {
       });
       
       const data = await response.json();
-      console.log('Test image response:', data);
+      console.log('Test image response (multipart):', data);
       
       return data;
-    } catch (blobErr) {
-      console.error('Blob conversion failed, falling back to JSON:', blobErr);
+    } catch (multipartError) {
+      console.error('Multipart test failed, trying JSON:', multipartError);
       
-      // Fallback to JSON if blob conversion fails
+      // Fall back to JSON if blob conversion fails
       const response = await fetch(`${API_URL}/test-image`, {
         method: 'POST',
         headers: {

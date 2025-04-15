@@ -9,18 +9,19 @@ const fs = require('fs');
 
 const app = express();
 
-// Configure multer for file uploads
+// Configure multer for file uploads with higher size limits for iOS compatibility
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
-    fileSize: 5 * 1024 * 1024, // 5MB max size
+    fileSize: 10 * 1024 * 1024, // 10MB max size for iOS compatibility
   }
 });
 
 // Middleware
 app.use(cors());
-app.use(express.json({ limit: '10mb' })); // Increased limit for JSON
+app.use(express.json({ limit: '15mb' })); // Increased limit for JSON to handle iOS
 app.use(cookieParser());
+app.use(express.urlencoded({ extended: true, limit: '15mb' })); // For URL-encoded data from forms
 
 // Database configuration
 const dbConfig = {
@@ -279,8 +280,16 @@ const performClockIn = async (subContractor, employee, number, lat, lon, cookie,
   // Only add image if it's valid
   let hasImage = false;
   if (imageBuffer && imageBuffer.length > 0) {
-    request.input('image', sql.VarBinary(sql.MAX), imageBuffer);
-    hasImage = true;
+    try {
+      // Process the image buffer further for iOS compatibility
+      // This can include resizing or compressing if needed
+      request.input('image', sql.VarBinary(sql.MAX), imageBuffer);
+      hasImage = true;
+      console.log(`Adding image to SQL query, size: ${imageBuffer.length} bytes`);
+    } catch (imgErr) {
+      console.error(`Error processing image for SQL: ${imgErr.message}`);
+      // Continue without the image if there's an error
+    }
   }
   
   // Build the query dynamically based on whether we have an image
@@ -311,6 +320,10 @@ const performClockIn = async (subContractor, employee, number, lat, lon, cookie,
 app.post('/api/clock-in', async (req, res) => {
   try {
     await poolConnect;
+    
+    console.log('Received JSON clock-in request');
+    console.log('Request body keys:', Object.keys(req.body));
+    
     const { subContractor, employee, number, lat, lon, cookie, notes, image } = req.body;
 
     // Process base64 image if provided
@@ -329,6 +342,7 @@ app.post('/api/clock-in', async (req, res) => {
       subContractor, employee, number, lat, lon, cookie, notes, imageBuffer
     );
     
+    console.log('Sending clock-in response:', result);
     res.json(result);
   } catch (err) {
     console.error(`Clock in error: ${err.message}`);
@@ -342,21 +356,33 @@ app.post('/api/clock-in-multipart', upload.single('image'), async (req, res) => 
   try {
     await poolConnect;
     
-    // Get JSON data from form data
-    const jsonData = JSON.parse(req.body.data || '{}');
+    console.log('Received multipart clock-in request');
+    console.log('Request form fields:', Object.keys(req.body));
+    
+    let jsonData;
+    try {
+      // Parse the JSON data from the form
+      jsonData = JSON.parse(req.body.data || '{}');
+      console.log('Parsed JSON data from form, keys:', Object.keys(jsonData));
+    } catch (jsonErr) {
+      console.error('Error parsing JSON data from multipart form:', jsonErr);
+      return res.status(400).json({ error: 'Invalid JSON data in request' });
+    }
+    
     const { subContractor, employee, number, lat, lon, cookie, notes } = jsonData;
     
     // Get image from uploaded file
     let imageBuffer = null;
     if (req.file) {
       imageBuffer = req.file.buffer;
-      console.log(`Received multipart image for clock-in: ${imageBuffer.length} bytes`);
+      console.log(`Received multipart image for clock-in: ${imageBuffer.length} bytes, mimetype: ${req.file.mimetype}`);
     }
     
     const result = await performClockIn(
       subContractor, employee, number, lat, lon, cookie, notes, imageBuffer
     );
     
+    console.log('Sending multipart clock-in response:', result);
     res.json(result);
   } catch (err) {
     console.error(`Multipart clock in error: ${err.message}`);
@@ -368,8 +394,8 @@ app.post('/api/clock-in-multipart', upload.single('image'), async (req, res) => 
 // Common clock-out function for both regular and multipart requests
 const performClockOut = async (id, cookie, notes, imageBuffer) => {
   // Validate required fields
-  if (!id && !cookie) {
-    throw new Error('Missing ID or cookie for clock-out');
+  if (!cookie) {
+    throw new Error('Missing cookie for clock-out');
   }
 
   // Create the request object
@@ -380,8 +406,15 @@ const performClockOut = async (id, cookie, notes, imageBuffer) => {
   // Only add image if it's valid
   let hasImage = false;
   if (imageBuffer && imageBuffer.length > 0) {
-    request.input('image', sql.VarBinary(sql.MAX), imageBuffer);
-    hasImage = true;
+    try {
+      // Process the image buffer further for iOS compatibility if needed
+      request.input('image', sql.VarBinary(sql.MAX), imageBuffer);
+      hasImage = true;
+      console.log(`Adding image to SQL query, size: ${imageBuffer.length} bytes`);
+    } catch (imgErr) {
+      console.error(`Error processing image for SQL: ${imgErr.message}`);
+      // Continue without the image if there's an error
+    }
   }
   
   // Build the query dynamically based on whether we have an image
@@ -413,6 +446,10 @@ const performClockOut = async (id, cookie, notes, imageBuffer) => {
 app.post('/api/clock-out', async (req, res) => {
   try {
     await poolConnect;
+    
+    console.log('Received JSON clock-out request');
+    console.log('Request body keys:', Object.keys(req.body));
+    
     const { id, cookie, notes, image } = req.body;
 
     // Process base64 image if provided
@@ -428,6 +465,8 @@ app.post('/api/clock-out', async (req, res) => {
     }
 
     const result = await performClockOut(id, cookie, notes, imageBuffer);
+    
+    console.log('Sending clock-out response:', result);
     res.json(result);
   } catch (err) {
     console.error(`Clock out error: ${err.message}`);
@@ -441,18 +480,31 @@ app.post('/api/clock-out-multipart', upload.single('image'), async (req, res) =>
   try {
     await poolConnect;
     
-    // Get JSON data from form data
-    const jsonData = JSON.parse(req.body.data || '{}');
+    console.log('Received multipart clock-out request');
+    console.log('Request form fields:', Object.keys(req.body));
+    
+    let jsonData;
+    try {
+      // Parse the JSON data from the form
+      jsonData = JSON.parse(req.body.data || '{}');
+      console.log('Parsed JSON data from form, keys:', Object.keys(jsonData));
+    } catch (jsonErr) {
+      console.error('Error parsing JSON data from multipart form:', jsonErr);
+      return res.status(400).json({ error: 'Invalid JSON data in request' });
+    }
+    
     const { id, cookie, notes } = jsonData;
     
     // Get image from uploaded file
     let imageBuffer = null;
     if (req.file) {
       imageBuffer = req.file.buffer;
-      console.log(`Received multipart image for clock-out: ${imageBuffer.length} bytes`);
+      console.log(`Received multipart image for clock-out: ${imageBuffer.length} bytes, mimetype: ${req.file.mimetype}`);
     }
     
     const result = await performClockOut(id, cookie, notes, imageBuffer);
+    
+    console.log('Sending multipart clock-out response:', result);
     res.json(result);
   } catch (err) {
     console.error(`Multipart clock out error: ${err.message}`);
@@ -464,8 +516,8 @@ app.post('/api/clock-out-multipart', upload.single('image'), async (req, res) =>
 // Test image upload endpoint (JSON version)
 app.post('/api/test-image', async (req, res) => {
   try {
+    console.log('Test image endpoint called (JSON)');
     const { image } = req.body;
-    console.log('Test image endpoint called');
     
     if (!image) {
       return res.status(400).json({ success: false, error: 'No image provided' });
@@ -480,7 +532,8 @@ app.post('/api/test-image', async (req, res) => {
       res.json({ 
         success: true, 
         imageSize: imageBuffer.length,
-        message: 'Image successfully processed'
+        message: 'Image successfully processed',
+        mode: 'json'
       });
     } catch (imgErr) {
       console.error(`Error processing test image: ${imgErr.message}`);
@@ -505,13 +558,15 @@ app.post('/api/test-image-multipart', upload.single('image'), async (req, res) =
     }
     
     const imageBuffer = req.file.buffer;
-    console.log(`Test multipart image processed: ${imageBuffer.length} bytes`);
+    console.log(`Test multipart image processed: ${imageBuffer.length} bytes, mimetype: ${req.file.mimetype}`);
     
     // Just for testing, we'll echo back some info but not store it
     res.json({ 
       success: true, 
       imageSize: imageBuffer.length,
-      message: 'Image successfully processed via multipart'
+      message: 'Image successfully processed via multipart',
+      mimetype: req.file.mimetype,
+      mode: 'multipart'
     });
   } catch (err) {
     console.error(`Test image multipart endpoint error: ${err.message}`);
@@ -623,6 +678,16 @@ app.get('/api/subcontractor-links', async (req, res) => {
     console.error(`Error fetching subcontractor links: ${err.message}`);
     res.status(500).json({ error: err.message });
   }
+});
+
+// Add error handling middleware
+app.use((err, req, res, next) => {
+  console.error('Unhandled error:', err);
+  res.status(500).json({ 
+    error: 'An unexpected error occurred',
+    message: err.message,
+    stack: process.env.NODE_ENV === 'production' ? undefined : err.stack
+  });
 });
 
 const PORT = process.env.PORT || 5000;
