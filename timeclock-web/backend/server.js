@@ -173,10 +173,82 @@ app.post('/api/clock-in', async (req, res) => {
     
     console.log(`Clock-in request received from ${browser}${isMobile ? ' mobile' : ''}:`, logData);
     
-    // Validate required fields
+    // Validate required fields with detailed logging
     const { subContractor, employee, number, lat, lon, cookie, notes } = req.body;
-    if (!subContractor || !employee || !number || !lat || !lon || !cookie) {
-      return res.status(400).json({ error: 'Missing required fields' });
+    
+    // Extra detailed debugging for iOS
+    if (browser === 'Safari' && isMobile) {
+      console.log('iOS Safari request body validation:');
+      console.log('- subContractor:', typeof subContractor, subContractor ? 'present' : 'missing');
+      console.log('- employee:', typeof employee, employee ? 'present' : 'missing');
+      console.log('- number:', typeof number, number ? 'present' : 'missing'); 
+      console.log('- lat:', typeof lat, lat ? 'present' : 'missing');
+      console.log('- lon:', typeof lon, lon ? 'present' : 'missing');
+      console.log('- cookie:', typeof cookie, cookie ? 'present' : 'missing');
+      console.log('- image:', typeof image, image ? `${image.substring(0, 30)}...` : 'missing');
+      console.log('- Raw body keys:', Object.keys(req.body));
+    }
+    
+    // Special handling for iOS Safari
+    if (browser === 'Safari' && isMobile) {
+      // For iOS, if we have a cookie and the other values are missing,
+      // attempt to retrieve user details from database
+      if (cookie && (!subContractor || !employee || !number)) {
+        console.log('Attempting to retrieve missing user details for iOS Safari user');
+        
+        // Get user details
+        const userDetails = await pool.request()
+          .input('cookie', sql.NVarChar, cookie)
+          .query(`
+            SELECT TOP 1 SubContractor, Employee, Number
+            FROM TimeClock
+            WHERE Cookie = @cookie
+            ORDER BY ClockIn DESC
+          `);
+        
+        if (userDetails.recordset.length > 0) {
+          const userData = userDetails.recordset[0];
+          console.log('Retrieved user details:', userData);
+          
+          // Use user details if missing in request
+          req.body.subContractor = subContractor || userData.SubContractor;
+          req.body.employee = employee || userData.Employee;
+          req.body.number = number || userData.Number;
+        }
+      }
+    }
+    
+    // Re-check after potential fixes
+    const { 
+      subContractor: finalSubContractor, 
+      employee: finalEmployee, 
+      number: finalNumber, 
+      lat: finalLat, 
+      lon: finalLon, 
+      cookie: finalCookie 
+    } = req.body;
+    
+    // Final validation
+    if (!finalSubContractor || !finalEmployee || !finalNumber || !finalLat || !finalLon || !finalCookie) {
+      console.log('Still missing required fields after fixes:');
+      console.log('- subContractor:', finalSubContractor ? 'present' : 'missing');
+      console.log('- employee:', finalEmployee ? 'present' : 'missing');
+      console.log('- number:', finalNumber ? 'present' : 'missing');
+      console.log('- lat:', finalLat ? 'present' : 'missing');
+      console.log('- lon:', finalLon ? 'present' : 'missing');
+      console.log('- cookie:', finalCookie ? 'present' : 'missing');
+      
+      return res.status(400).json({ 
+        error: 'Missing required fields',
+        missing: {
+          subContractor: !finalSubContractor,
+          employee: !finalEmployee,
+          number: !finalNumber,
+          lat: !finalLat,
+          lon: !finalLon,
+          cookie: !finalCookie
+        }
+      });
     }
     
     // Process base64 image if provided

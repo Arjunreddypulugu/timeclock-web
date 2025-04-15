@@ -150,11 +150,33 @@ export const clockIn = async (clockInData) => {
     // Special handling for Safari
     let sanitizedData;
     try {
+      // Filter out any undefined or null values that could cause issues
+      const filteredData = Object.fromEntries(
+        Object.entries(clockInData)
+          .filter(([_, value]) => value !== undefined && value !== null)
+      );
+      
+      // Move non-standard fields to browser info for debugging
+      const { browserInfo, isMobile, ...standardData } = filteredData;
+      
       // Ensure image is properly formatted for all browsers
       sanitizedData = {
-        ...clockInData,
-        image: sanitizeImageData(clockInData.image)
+        ...standardData,
+        image: sanitizeImageData(filteredData.image)
       };
+      
+      // Make sure all required fields are present and valid
+      const requiredFields = ['subContractor', 'employee', 'number', 'lat', 'lon', 'cookie'];
+      const missingFields = requiredFields.filter(field => 
+        !sanitizedData[field] || 
+        sanitizedData[field] === 'undefined' || 
+        sanitizedData[field] === 'null'
+      );
+      
+      if (missingFields.length > 0) {
+        debugLog('Missing required fields detected:', missingFields);
+        throw new Error(`Missing required fields: ${missingFields.join(', ')}`);
+      }
       
       debugLog('Sanitized data:', {...sanitizedData, image: '(sanitized image data omitted)'});
     } catch (sanitizeError) {

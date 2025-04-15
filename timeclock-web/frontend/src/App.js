@@ -227,20 +227,78 @@ function App() {
         throw new Error('Invalid image format. Please retake the photo.');
       }
       
+      // iOS Safari special handling - ensure fields are properly sent
+      let userInfo = userDetails;
+      
+      // For iOS Safari, double-check we have user details
+      if (browserInfo.browser === 'Safari' && browserInfo.isIOS) {
+        debugLog('iOS Safari detected, ensuring user details are available');
+        
+        // If we don't have user details but we're not a new user,
+        // try to retrieve them from localStorage or other state
+        if (!userInfo && !isNewUser) {
+          const storedUser = localStorage.getItem('userDetails');
+          if (storedUser) {
+            try {
+              userInfo = JSON.parse(storedUser);
+              debugLog('Retrieved user details from localStorage', userInfo);
+            } catch (e) {
+              console.error('Error parsing stored user details:', e);
+            }
+          }
+        }
+        
+        // Log what details we'll be using
+        debugLog('User details that will be used:', {
+          fromState: userDetails ? 'Yes' : 'No',
+          fromStorage: userInfo && !userDetails ? 'Yes' : 'No',
+          subContractor: userDetails?.SubContractor || subContractor,
+          employee: userDetails?.Employee || employeeName,
+          number: userDetails?.Number || phoneNumber
+        });
+      }
+      
+      // Ensure all fields are explicitly defined, especially for iOS Safari
       const clockInData = {
-        subContractor: userDetails?.SubContractor || subContractor,
-        employee: userDetails?.Employee || employeeName,
-        number: userDetails?.Number || phoneNumber,
+        subContractor: (userInfo?.SubContractor || subContractor || '').trim(),
+        employee: (userInfo?.Employee || employeeName || '').trim(),
+        number: (userInfo?.Number || phoneNumber || '').trim(),
         lat: location.lat,
         lon: location.lon,
         cookie: cookieId,
-        notes,
-        image: clockInImage
+        notes: notes || '',
+        image: clockInImage,
+        // Include browser info in payload to help server with debugging
+        browserInfo: browserInfo.browser,
+        isMobile: browserInfo.isMobile
       };
+      
+      // Verify required fields
+      const missingFields = [];
+      if (!clockInData.subContractor) missingFields.push('subContractor');
+      if (!clockInData.employee) missingFields.push('employee');
+      if (!clockInData.number) missingFields.push('number');
+      if (!clockInData.lat) missingFields.push('lat');
+      if (!clockInData.lon) missingFields.push('lon');
+      if (!clockInData.cookie) missingFields.push('cookie');
+      
+      if (missingFields.length > 0) {
+        debugLog('Missing required fields', missingFields);
+        throw new Error(`Missing required fields: ${missingFields.join(', ')}`);
+      }
       
       // Special handling for Safari
       if (browserInfo.browser === 'Safari' && browserInfo.isIOS) {
-        debugLog('Using Safari-specific clock-in process');
+        debugLog('Using Safari-specific clock-in process', clockInData);
+        
+        // Save the user details to localStorage for future use
+        if (clockInData.employee && clockInData.subContractor) {
+          localStorage.setItem('userDetails', JSON.stringify({
+            SubContractor: clockInData.subContractor,
+            Employee: clockInData.employee,
+            Number: clockInData.number
+          }));
+        }
       }
       
       debugLog(`Sending clock-in data for ${clockInData.employee} at location ${location.lat},${location.lon}`);
@@ -261,6 +319,17 @@ function App() {
       } catch (apiError) {
         console.error('Clock in API error:', apiError);
         let errorMessage = apiError.message || 'Unknown error';
+        
+        // If we get missing fields error, be more specific
+        if (errorMessage.includes('Missing required fields')) {
+          if (apiError.missing) {
+            const missing = Object.entries(apiError.missing)
+              .filter(([_, isMissing]) => isMissing)
+              .map(([field]) => field);
+            
+            errorMessage = `Missing required fields: ${missing.join(', ')}. Please try again.`;
+          }
+        }
         
         // More user-friendly error messages
         if (errorMessage.includes('Failed to parse server response')) {
