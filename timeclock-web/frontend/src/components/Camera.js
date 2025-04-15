@@ -27,6 +27,7 @@ const VideoContainer = styled.div`
   border-radius: ${props => props.theme.radii.md};
   overflow: hidden;
   margin-bottom: ${props => props.theme.space.md};
+  background-color: #000;
   
   &::after {
     content: '';
@@ -63,15 +64,30 @@ const ImagePreview = styled.img`
 const ButtonContainer = styled.div`
   display: flex;
   gap: ${props => props.theme.space.sm};
+  justify-content: center;
+  width: 100%;
+  max-width: 400px;
 `;
 
 const ErrorMessage = styled.div`
   color: red;
-  margin-bottom: 1rem;
+  margin: 1rem 0;
   padding: 10px;
   border-radius: 4px;
   background-color: rgba(255, 0, 0, 0.1);
   text-align: center;
+  width: 100%;
+  max-width: 400px;
+`;
+
+const TipMessage = styled.div`
+  color: #666;
+  margin: 0.5rem 0;
+  padding: 8px;
+  font-size: 0.85rem;
+  text-align: center;
+  width: 100%;
+  max-width: 400px;
 `;
 
 const Camera = ({ onCapture, onClear }) => {
@@ -80,87 +96,119 @@ const Camera = ({ onCapture, onClear }) => {
   const [stream, setStream] = useState(null);
   const [capturedImage, setCapturedImage] = useState(null);
   const [cameraError, setCameraError] = useState('');
-  const [isMobileDevice, setIsMobileDevice] = useState(false);
-  const [usingFrontCamera, setUsingFrontCamera] = useState(true);
+  const [cameraStarted, setCameraStarted] = useState(false);
+  const [countdown, setCountdown] = useState(null);
   
+  // On mount, don't auto-start camera to avoid iOS issues
   useEffect(() => {
-    // Check if user is on a mobile device, particularly iOS
-    const userAgent = navigator.userAgent || navigator.vendor || window.opera;
-    const isIOS = /iPad|iPhone|iPod/.test(userAgent) && !window.MSStream;
-    const isAndroid = /android/i.test(userAgent);
-    setIsMobileDevice(isIOS || isAndroid);
+    debugLog('Camera component mounted');
     
-    debugLog('Device detection', { isIOS, isAndroid, userAgent });
-    
-    startCamera();
+    // On unmount, ensure we clean up
     return () => {
       stopCamera();
     };
   }, []);
 
   const startCamera = async () => {
+    setCameraStarted(true);
+    setCameraError('');
     try {
-      setCameraError('');
+      debugLog('Starting camera...');
+      
+      // Always use simpler constraints, especially for iOS
       const constraints = {
         video: {
-          width: { ideal: 640 }, // Lower resolution for better compatibility
-          height: { ideal: 480 },
-          facingMode: usingFrontCamera ? 'user' : 'environment'
+          facingMode: 'environment', // Always use back camera
+          width: { ideal: 640 },     // Lower resolution 
+          height: { ideal: 480 }
         }
       };
       
-      debugLog('Requesting camera with constraints', constraints);
-      
-      // For iOS Safari, we need to handle permissions differently
-      if (isIOS && isSafari) {
-        debugLog('Using iOS Safari specific camera handling');
-        constraints.video.facingMode = 'user'; // Always start with front camera on iOS Safari
+      // iOS Safari specific
+      if (isIOS) {
+        debugLog('Using iOS specific camera constraints');
+        // iOS works better with very simple constraints
+        constraints.video = { facingMode: 'environment' };
       }
       
-      const mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
-      setStream(mediaStream);
+      debugLog('Using camera constraints:', constraints);
       
-      if (videoRef.current) {
-        videoRef.current.srcObject = mediaStream;
+      try {
+        const mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+        setStream(mediaStream);
         
-        // For iOS Safari, we need to make sure the video is properly loaded
-        videoRef.current.setAttribute('playsinline', true);
-        videoRef.current.setAttribute('autoplay', true);
-        videoRef.current.setAttribute('muted', true);
+        if (videoRef.current) {
+          videoRef.current.srcObject = mediaStream;
+          
+          // Essential attributes for iOS
+          videoRef.current.setAttribute('playsinline', true);
+          videoRef.current.setAttribute('autoplay', true);
+          videoRef.current.setAttribute('muted', true);
+          
+          // Listen for loadedmetadata event
+          videoRef.current.onloadedmetadata = () => {
+            debugLog('Video metadata loaded');
+            videoRef.current.play().catch(e => {
+              console.error("Error playing video:", e);
+              setCameraError(`Video playback error: ${e.message}`);
+            });
+          };
+        }
+      } catch (err) {
+        // If it fails with environment camera, try again with any camera
+        console.warn('Failed with environment camera, trying default camera');
         
-        // Ensure video is properly loaded on all browsers
-        videoRef.current.onloadedmetadata = () => {
-          debugLog('Video metadata loaded');
-          videoRef.current.play().catch(e => {
-            console.error("Error playing video:", e);
-            setCameraError(`Video playback error: ${e.message}`);
-          });
-        };
+        const mediaStream = await navigator.mediaDevices.getUserMedia({ video: true });
+        setStream(mediaStream);
+        
+        if (videoRef.current) {
+          videoRef.current.srcObject = mediaStream;
+          videoRef.current.setAttribute('playsinline', true);
+          videoRef.current.setAttribute('autoplay', true);
+          videoRef.current.setAttribute('muted', true);
+          
+          videoRef.current.onloadedmetadata = () => {
+            debugLog('Video metadata loaded (fallback)');
+            videoRef.current.play().catch(e => {
+              console.error("Error playing video:", e);
+              setCameraError(`Video playback error: ${e.message}`);
+            });
+          };
+        }
       }
     } catch (err) {
       console.error('Error accessing camera:', err);
       let errorMessage = `Could not access camera: ${err.message}. `;
       
       if (err.name === 'NotAllowedError') {
-        errorMessage += 'Please grant camera permissions in your browser settings.';
+        errorMessage = 'Camera permission denied. Please allow camera access in your browser settings.';
       } else if (err.name === 'NotFoundError') {
-        errorMessage += 'No camera device found.';
+        errorMessage = 'No camera device found. Please make sure your device has a working camera.';
       } else if (err.name === 'NotReadableError') {
-        errorMessage += 'Camera is already in use by another application.';
+        errorMessage = 'Camera is in use by another application. Please close other apps that might be using your camera.';
       } else if (err.name === 'OverconstrainedError') {
-        errorMessage += 'Camera constraints not satisfied, trying fallback...';
-        // Try again with simpler constraints
+        errorMessage = 'Camera requirements not met. Trying simpler settings...';
+        
+        // Try one more time with the simplest possible constraints
         try {
           const mediaStream = await navigator.mediaDevices.getUserMedia({ video: true });
           setStream(mediaStream);
           if (videoRef.current) {
             videoRef.current.srcObject = mediaStream;
+            videoRef.current.setAttribute('playsinline', true);
+            videoRef.current.setAttribute('autoplay', true);
+            videoRef.current.setAttribute('muted', true);
             videoRef.current.play().catch(e => console.error("Fallback video play error:", e));
           }
           return; // Exit early if fallback succeeded
         } catch (fallbackErr) {
-          errorMessage += ` Fallback failed: ${fallbackErr.message}`;
+          errorMessage = 'Could not access any camera. Please check your device permissions.';
         }
+      }
+      
+      // iOS specific guidance
+      if (isIOS) {
+        errorMessage += ' On iOS, make sure you allow camera access when prompted.';
       }
       
       setCameraError(errorMessage);
@@ -168,14 +216,38 @@ const Camera = ({ onCapture, onClear }) => {
   };
 
   const stopCamera = () => {
+    debugLog('Stopping camera');
     if (stream) {
       stream.getTracks().forEach(track => track.stop());
       setStream(null);
     }
+    setCameraStarted(false);
+    setCountdown(null);
+  };
+
+  const startCountdown = () => {
+    if (!stream) return;
+    
+    debugLog('Starting photo countdown');
+    setCountdown(3);
+    
+    const countdownInterval = setInterval(() => {
+      setCountdown(prevCount => {
+        if (prevCount <= 1) {
+          clearInterval(countdownInterval);
+          capturePhoto();
+          return null;
+        }
+        return prevCount - 1;
+      });
+    }, 1000);
   };
 
   const capturePhoto = () => {
-    if (!videoRef.current || !canvasRef.current) return;
+    if (!videoRef.current || !canvasRef.current) {
+      setCameraError('Camera not ready. Please try again.');
+      return;
+    }
     
     debugLog('Capturing photo');
 
@@ -183,63 +255,71 @@ const Camera = ({ onCapture, onClear }) => {
     const canvas = canvasRef.current;
     
     try {
-      // Set canvas dimensions to match video
-      canvas.width = video.videoWidth || 640;
-      canvas.height = video.videoHeight || 480;
+      // Use a lower resolution for iOS devices to improve performance
+      const width = isIOS ? 640 : (video.videoWidth || 640);
+      const height = isIOS ? 480 : (video.videoHeight || 480);
       
-      debugLog('Canvas dimensions set', { width: canvas.width, height: canvas.height });
+      // Set canvas dimensions
+      canvas.width = width;
+      canvas.height = height;
+      
+      debugLog('Canvas dimensions set', { width, height });
       
       // Draw video frame on canvas
       const context = canvas.getContext('2d');
       context.drawImage(video, 0, 0, canvas.width, canvas.height);
       
-      // Generate data URL with lower quality for Safari
-      let quality = 0.7;
-      if (isIOS || isSafari) {
-        quality = 0.5; // Lower quality for Safari to reduce payload size
-      }
+      // Use lower quality for iOS to ensure successful processing
+      const quality = isIOS ? 0.4 : 0.7;
       
       try {
-        // First try the simplest approach for most browsers
         const dataUrl = canvas.toDataURL('image/jpeg', quality);
-        debugLog('Generated data URL length', dataUrl.length);
+        debugLog('Generated data URL', { length: dataUrl.length });
         
-        // Verify data URL is valid
         if (!dataUrl || dataUrl === 'data:,') {
           throw new Error('Generated empty data URL');
         }
         
+        // Send the image data to parent component
         setCapturedImage(dataUrl);
         onCapture(dataUrl);
+        stopCamera(); // Stop camera after successful capture
       } catch (canvasError) {
         console.error('Canvas error:', canvasError);
         
-        // Alternative approach for Safari if the first one fails
+        // iOS Safari fallback using blob
         try {
-          debugLog('Trying alternative image capture for Safari');
-          
-          // Create a blob from the canvas
-          canvas.toBlob(blob => {
-            const imageUrl = URL.createObjectURL(blob);
-            setCapturedImage(imageUrl);
-            
-            // Convert blob to base64
-            const reader = new FileReader();
-            reader.readAsDataURL(blob);
-            reader.onloadend = () => {
-              const base64data = reader.result;
-              debugLog('Blob converted to base64', { length: base64data.length });
-              onCapture(base64data);
-            };
-          }, 'image/jpeg', quality);
+          debugLog('Trying blob fallback for iOS');
+          canvas.toBlob(
+            (blob) => {
+              if (!blob) {
+                setCameraError('Failed to capture image. Please try again.');
+                return;
+              }
+              
+              const reader = new FileReader();
+              reader.onloadend = () => {
+                const base64data = reader.result;
+                setCapturedImage(base64data);
+                onCapture(base64data);
+                stopCamera(); // Stop camera after successful capture
+              };
+              reader.onerror = () => {
+                setCameraError('Failed to process image. Please try again.');
+              };
+              reader.readAsDataURL(blob);
+            },
+            'image/jpeg',
+            quality
+          );
         } catch (blobError) {
-          console.error('Blob conversion error:', blobError);
-          setCameraError(`Failed to process image: ${blobError.message}`);
+          console.error('Blob creation error:', blobError);
+          setCameraError('Failed to process image. Please try again.');
         }
       }
-    } catch (captureError) {
-      console.error('Error capturing photo:', captureError);
-      setCameraError(`Failed to capture image: ${captureError.message}`);
+    } catch (err) {
+      console.error('Error capturing photo:', err);
+      setCameraError('Failed to capture image. Please make sure camera is ready and try again.');
     }
   };
 
@@ -247,68 +327,92 @@ const Camera = ({ onCapture, onClear }) => {
     debugLog('Retaking photo');
     setCapturedImage(null);
     if (onClear) onClear();
-    startCamera();
-  };
-
-  const switchCamera = async () => {
-    setUsingFrontCamera(!usingFrontCamera);
+    
+    // Reset camera
     stopCamera();
-    setTimeout(() => {
-      startCamera();
-    }, 300); // A small delay to ensure camera is properly stopped
+    setTimeout(() => startCamera(), 500);
   };
 
   return (
     <CameraContainer>
       <VideoContainer>
-        <StyledVideo 
-          ref={videoRef} 
-          autoPlay 
-          playsInline
-          muted
-          style={{ display: capturedImage ? 'none' : 'block' }}
-        />
+        {!cameraStarted && !capturedImage && (
+          <div style={{ 
+            position: 'absolute', 
+            top: 0, 
+            left: 0, 
+            width: '100%', 
+            height: '100%', 
+            display: 'flex', 
+            alignItems: 'center', 
+            justifyContent: 'center',
+            backgroundColor: '#000',
+            color: '#fff',
+            fontSize: '1.2rem',
+            textAlign: 'center',
+            padding: '1rem'
+          }}>
+            Click "Start Camera" below
+          </div>
+        )}
+        
+        <StyledVideo ref={videoRef} autoPlay playsInline muted />
         <StyledCanvas ref={canvasRef} />
-        <ImagePreview 
-          src={capturedImage} 
-          show={!!capturedImage}
-          alt="Captured" 
-        />
+        <ImagePreview src={capturedImage} alt="Captured" show={!!capturedImage} />
+        
+        {countdown !== null && (
+          <div style={{ 
+            position: 'absolute', 
+            top: 0, 
+            left: 0, 
+            width: '100%', 
+            height: '100%', 
+            display: 'flex', 
+            alignItems: 'center', 
+            justifyContent: 'center',
+            backgroundColor: 'rgba(0,0,0,0.5)',
+            color: '#fff',
+            fontSize: '4rem',
+            fontWeight: 'bold'
+          }}>
+            {countdown}
+          </div>
+        )}
       </VideoContainer>
       
-      {cameraError && (
-        <ErrorMessage>
-          {cameraError}
-        </ErrorMessage>
+      {cameraError && <ErrorMessage>{cameraError}</ErrorMessage>}
+      
+      {isIOS && !capturedImage && (
+        <TipMessage>
+          iOS tip: Make sure to allow camera access when prompted. Hold your device steady.
+        </TipMessage>
       )}
       
       <ButtonContainer>
-        {!capturedImage ? (
+        {!cameraStarted && !capturedImage && (
+          <Button variant="primary" onClick={startCamera} style={{ width: '100%' }}>
+            Start Camera
+          </Button>
+        )}
+        
+        {cameraStarted && !capturedImage && !countdown && (
           <>
-            <Button 
-              variant="primary" 
-              onClick={capturePhoto}
-              disabled={!stream}
-            >
+            <Button variant="secondary" onClick={stopCamera}>
+              Cancel
+            </Button>
+            <Button variant="primary" onClick={startCountdown}>
               Take Photo
             </Button>
-            {isMobileDevice && (
-              <Button 
-                variant="secondary" 
-                onClick={switchCamera}
-                disabled={!stream}
-              >
-                Switch Camera
-              </Button>
-            )}
           </>
-        ) : (
+        )}
+        
+        {capturedImage && (
           <>
-            <Button 
-              variant="secondary" 
-              onClick={retakePhoto}
-            >
+            <Button variant="secondary" onClick={retakePhoto}>
               Retake
+            </Button>
+            <Button variant="primary" onClick={() => {}}>
+              Use Photo
             </Button>
           </>
         )}

@@ -8,7 +8,6 @@ import LocationCard from './components/LocationCard';
 import RegistrationForm from './components/RegistrationForm';
 import TimeClockCard from './components/TimeClockCard';
 import Camera from './components/Camera';
-import CaptureOptions from './components/CaptureOptions';
 import Button from './components/Button';
 import { verifyLocation, getUserStatus, registerUser, clockIn, clockOut } from './services/api';
 import styled from 'styled-components';
@@ -619,10 +618,9 @@ function App() {
         {showCamera ? (
           <div>
             <h2>{captureMode === 'clockIn' ? 'Take Clock-In Photo' : 'Take Clock-Out Photo'}</h2>
-            <CaptureOptions 
+            <Camera 
               onCapture={handleCaptureImage}
               onClear={() => handleCaptureImage('')}
-              mode={captureMode}
             />
             <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center' }}>
               <Button 
