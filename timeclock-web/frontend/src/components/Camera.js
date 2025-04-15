@@ -55,28 +55,21 @@ const ButtonContainer = styled.div`
   gap: ${props => props.theme.space.sm};
 `;
 
-// Browser detection helper
-const isIOS = () => {
-  return /iPad|iPhone|iPod/.test(navigator.userAgent) || 
-    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-};
-
-// Safari detection
-const isSafari = () => {
-  return /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
-};
-
 const Camera = ({ onCapture, onClear }) => {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const [stream, setStream] = useState(null);
   const [capturedImage, setCapturedImage] = useState(null);
   const [cameraError, setCameraError] = useState('');
-  const [isMobileSafari, setIsMobileSafari] = useState(false);
-
+  const [isMobileDevice, setIsMobileDevice] = useState(false);
+  
   useEffect(() => {
-    // Check if we're on iOS Safari
-    setIsMobileSafari(isIOS() && isSafari());
+    // Check if user is on a mobile device, particularly iOS
+    const userAgent = navigator.userAgent || navigator.vendor || window.opera;
+    const isIOS = /iPad|iPhone|iPod/.test(userAgent) && !window.MSStream;
+    const isAndroid = /android/i.test(userAgent);
+    setIsMobileDevice(isIOS || isAndroid);
+    
     startCamera();
     return () => {
       stopCamera();
@@ -90,41 +83,27 @@ const Camera = ({ onCapture, onClear }) => {
         video: {
           width: { ideal: 1280 },
           height: { ideal: 720 },
+          // On iOS devices, use the front camera
           facingMode: 'user'
         }
       };
-      
-      // On iOS Safari, use specific constraints to avoid issues
-      if (isIOS() && isSafari()) {
-        constraints.video = {
-          facingMode: 'user',
-          width: 640,
-          height: 480
-        };
-      }
       
       const mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
       setStream(mediaStream);
       
       if (videoRef.current) {
         videoRef.current.srcObject = mediaStream;
-        
-        // For iOS Safari, we need to play in response to a user gesture
-        if (isIOS() && isSafari()) {
-          videoRef.current.setAttribute('playsinline', true);
-          videoRef.current.setAttribute('webkit-playsinline', true);
-          // We'll automatically play when the stream is ready
-          videoRef.current.onloadedmetadata = () => {
-            videoRef.current.play().catch(e => {
-              console.error('Error playing video:', e);
-              setCameraError(`Error playing video: ${e.message}`);
-            });
-          };
-        }
+        // Ensure video is properly loaded on all browsers
+        videoRef.current.onloadedmetadata = () => {
+          videoRef.current.play().catch(e => {
+            console.error("Error playing video:", e);
+            setCameraError(`Video playback error: ${e.message}`);
+          });
+        };
       }
     } catch (err) {
       console.error('Error accessing camera:', err);
-      setCameraError(`Could not access camera: ${err.message}`);
+      setCameraError(`Could not access camera: ${err.message}. Please ensure camera permissions are granted.`);
     }
   };
 
@@ -150,32 +129,21 @@ const Camera = ({ onCapture, onClear }) => {
       const context = canvas.getContext('2d');
       context.drawImage(video, 0, 0, canvas.width, canvas.height);
       
-      // Get data URL for preview
-      const imageDataUrl = canvas.toDataURL('image/jpeg', 0.8);
-      setCapturedImage(imageDataUrl);
+      // Generate data URL directly first for immediate preview
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
+      setCapturedImage(dataUrl);
       
-      // For iOS Safari, we'll directly use the data URL
-      if (isIOS() && isSafari()) {
-        onCapture(imageDataUrl);
-        return;
+      // For iOS compatibility, use this approach:
+      try {
+        // Convert to base64 for API sending - more reliable across browsers
+        onCapture(dataUrl);
+      } catch (conversionError) {
+        console.error('Error converting image:', conversionError);
+        setCameraError(`Image processing error: ${conversionError.message}`);
       }
-      
-      // For other browsers, convert to blob then base64
-      canvas.toBlob(blob => {
-        const imageUrl = URL.createObjectURL(blob);
-        setCapturedImage(imageUrl);
-        
-        // Convert blob to base64 for API sending
-        const reader = new FileReader();
-        reader.readAsDataURL(blob);
-        reader.onloadend = () => {
-          const base64data = reader.result;
-          onCapture(base64data);
-        };
-      }, 'image/jpeg', 0.7); // JPEG format with 70% quality
-    } catch (err) {
-      console.error('Error capturing photo:', err);
-      setCameraError(`Error capturing photo: ${err.message}`);
+    } catch (captureError) {
+      console.error('Error capturing photo:', captureError);
+      setCameraError(`Failed to capture image: ${captureError.message}`);
     }
   };
 
@@ -192,7 +160,6 @@ const Camera = ({ onCapture, onClear }) => {
           ref={videoRef} 
           autoPlay 
           playsInline
-          webkit-playsinline="true"
           muted
           style={{ display: capturedImage ? 'none' : 'block' }}
         />
@@ -207,12 +174,6 @@ const Camera = ({ onCapture, onClear }) => {
       {cameraError && (
         <div style={{ color: 'red', marginBottom: '1rem' }}>
           {cameraError}
-        </div>
-      )}
-      
-      {isMobileSafari && (
-        <div style={{ color: 'orange', marginBottom: '1rem', textAlign: 'center', fontSize: '0.9rem' }}>
-          Using iOS Safari mode
         </div>
       )}
       

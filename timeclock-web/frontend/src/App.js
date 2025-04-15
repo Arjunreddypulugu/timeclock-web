@@ -179,7 +179,13 @@ function App() {
     
     try {
       setLoading(true);
+      setError(''); // Clear any existing errors
       console.log('Starting clock-in process...');
+      
+      // Validate image data before sending
+      if (!clockInImage.includes('base64') && !clockInImage.startsWith('data:image/')) {
+        throw new Error('Invalid image format. Please retake the photo.');
+      }
       
       const clockInData = {
         subContractor: userDetails?.SubContractor || subContractor,
@@ -204,24 +210,26 @@ function App() {
           setShowCamera(false);
           console.log('Successfully clocked in with ID:', response.id);
           checkUserStatus(cookieId);
-        } else if (response.error) {
-          setError('Clock in failed: ' + response.error);
+        } else {
+          setError('Clock in failed: ' + (response.error || 'Unknown error'));
         }
       } catch (apiError) {
         console.error('Clock in API error:', apiError);
+        let errorMessage = apiError.message || 'Unknown error';
         
-        // Provide user-friendly error message
-        if (apiError.message.includes('non-JSON response')) {
-          setError('Server communication error. Please try again or refresh the page.');
-        } else {
-          setError('Clock in failed: ' + (apiError.message || 'Unknown error'));
+        // More user-friendly error messages
+        if (errorMessage.includes('Failed to parse server response')) {
+          errorMessage = 'The server returned an invalid response. Please try again.';
+        } else if (errorMessage.includes('image')) {
+          errorMessage = 'There was a problem with your photo. Please retake it.';
+        } else if (errorMessage.includes('network')) {
+          errorMessage = 'Network error. Please check your connection and try again.';
         }
         
-        // Reset camera state if there was an error
-        setCaptureMode('clockIn');
+        setError('Clock in failed: ' + errorMessage);
       }
     } catch (err) {
-      console.error('Clock in error:', err);
+      console.error('Clock in client error:', err);
       setError('Clock in failed: ' + (err.message || 'Unknown error'));
     } finally {
       setLoading(false);
@@ -242,13 +250,21 @@ function App() {
     
     try {
       setLoading(true);
+      setError(''); // Clear any existing errors
       console.log('Starting clock-out process...');
+      
+      // Validate image data before sending
+      if (!clockOutImage.includes('base64') && !clockOutImage.startsWith('data:image/')) {
+        throw new Error('Invalid image format. Please retake the photo.');
+      }
       
       const clockOutData = {
         cookie: cookieId,
         notes,
         image: clockOutImage
       };
+      
+      console.log(`Sending clock-out data for cookie ${cookieId}`);
       
       try {
         const response = await clockOut(clockOutData);
@@ -260,24 +276,26 @@ function App() {
           setShowCamera(false);
           console.log('Successfully clocked out');
           checkUserStatus(cookieId);
-        } else if (response.error) {
-          setError('Clock out failed: ' + response.error);
+        } else {
+          setError('Clock out failed: ' + (response.error || 'Unknown error'));
         }
       } catch (apiError) {
         console.error('Clock out API error:', apiError);
+        let errorMessage = apiError.message || 'Unknown error';
         
-        // Provide user-friendly error message
-        if (apiError.message.includes('non-JSON response')) {
-          setError('Server communication error. Please try again or refresh the page.');
-        } else {
-          setError('Clock out failed: ' + (apiError.message || 'Unknown error'));
+        // More user-friendly error messages
+        if (errorMessage.includes('Failed to parse server response')) {
+          errorMessage = 'The server returned an invalid response. Please try again.';
+        } else if (errorMessage.includes('image')) {
+          errorMessage = 'There was a problem with your photo. Please retake it.';
+        } else if (errorMessage.includes('network')) {
+          errorMessage = 'Network error. Please check your connection and try again.';
         }
         
-        // Reset camera state if there was an error
-        setCaptureMode('clockOut');
+        setError('Clock out failed: ' + errorMessage);
       }
     } catch (err) {
-      console.error('Clock out error:', err);
+      console.error('Clock out client error:', err);
       setError('Clock out failed: ' + (err.message || 'Unknown error'));
     } finally {
       setLoading(false);

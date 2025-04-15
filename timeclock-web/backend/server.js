@@ -165,36 +165,60 @@ app.post('/api/register', async (req, res) => {
 app.post('/api/clock-in', async (req, res) => {
   try {
     await poolConnect;
-    const { subContractor, employee, number, lat, lon, cookie, notes, image } = req.body;
-
+    
+    // Log the request but omit the image data
+    const { image, ...logData } = req.body;
+    console.log('Clock-in request received:', logData);
+    
+    // Validate required fields
+    const { subContractor, employee, number, lat, lon, cookie, notes } = req.body;
+    if (!subContractor || !employee || !number || !lat || !lon || !cookie) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+    
     // Process base64 image if provided
     let imageBuffer = null;
     if (image) {
       try {
-        // Remove data:image/jpeg;base64, prefix
-        const base64Data = image.replace(/^data:image\/\w+;base64,/, '');
+        // Handle different image encodings from different browsers
+        let base64Data;
+        if (image.startsWith('data:image/')) {
+          // Remove data URI prefix (e.g., 'data:image/jpeg;base64,')
+          base64Data = image.split(',')[1];
+        } else {
+          base64Data = image;
+        }
+        
+        // Verify the base64 string is valid
+        if (!/^[A-Za-z0-9+/=]+$/.test(base64Data)) {
+          console.warn('Invalid base64 characters in image data');
+          return res.status(400).json({ error: 'The image data contains invalid characters' });
+        }
+        
+        // Create buffer from base64
         imageBuffer = Buffer.from(base64Data, 'base64');
         console.log(`Received image for clock-in: ${imageBuffer.length} bytes`);
+        
+        // Validate image data
+        if (imageBuffer.length < 100) {
+          console.warn('Image data too small, likely invalid');
+          return res.status(400).json({ error: 'The provided image appears to be invalid' });
+        }
       } catch (imgErr) {
-        console.error(`Error processing image: ${imgErr.message}`);
-        // Continue without the image if there's an error
+        console.error(`Error processing clock-in image: ${imgErr.message}`);
+        return res.status(400).json({ error: `Image processing error: ${imgErr.message}` });
       }
     }
-
-    // First verify location is valid before allowing clock in
+    
+    // Verify worksite location
     const validLocation = await pool.request()
       .input('lat', sql.Float, lat)
       .input('lon', sql.Float, lon)
       .query(`
-        SELECT customer_name
-        FROM LocationCustomerMapping
-        WHERE @lat BETWEEN min_latitude AND max_latitude
-        AND (
-          -- Handle both possibilities for longitude storage (important for negative values)
-          (@lon BETWEEN min_longitude AND max_longitude)
-          OR 
-          (@lon BETWEEN max_longitude AND min_longitude)
-        )
+        SELECT TOP 1 customer_name
+        FROM WorksiteLocations
+        WHERE 
+          (POWER((lat - @lat) * 111000, 2) + POWER((lon - @lon) * 111000 * COS(@lat * 0.018), 2)) <= POWER(radius, 2)
       `);
     
     console.log(`Clock-in location check: lat=${lat}, lon=${lon}, found=${validLocation.recordset.length}`);
@@ -263,19 +287,48 @@ app.post('/api/clock-in', async (req, res) => {
 app.post('/api/clock-out', async (req, res) => {
   try {
     await poolConnect;
-    const { cookie, notes, image } = req.body;
+    
+    // Log the request but omit the image data
+    const { image, ...logData } = req.body;
+    console.log('Clock-out request received:', logData);
+    
+    const { cookie, notes } = req.body;
+    
+    if (!cookie) {
+      return res.status(400).json({ error: 'Missing required cookie field' });
+    }
 
     // Process base64 image if provided
     let imageBuffer = null;
     if (image) {
       try {
-        // Remove data:image/jpeg;base64, prefix
-        const base64Data = image.replace(/^data:image\/\w+;base64,/, '');
+        // Handle different image encodings from different browsers
+        let base64Data;
+        if (image.startsWith('data:image/')) {
+          // Remove data URI prefix (e.g., 'data:image/jpeg;base64,')
+          base64Data = image.split(',')[1];
+        } else {
+          base64Data = image;
+        }
+        
+        // Verify the base64 string is valid
+        if (!/^[A-Za-z0-9+/=]+$/.test(base64Data)) {
+          console.warn('Invalid base64 characters in image data');
+          return res.status(400).json({ error: 'The image data contains invalid characters' });
+        }
+        
+        // Create buffer from base64
         imageBuffer = Buffer.from(base64Data, 'base64');
         console.log(`Received image for clock-out: ${imageBuffer.length} bytes`);
+        
+        // Validate image data
+        if (imageBuffer.length < 100) {
+          console.warn('Image data too small, likely invalid');
+          return res.status(400).json({ error: 'The provided image appears to be invalid' });
+        }
       } catch (imgErr) {
         console.error(`Error processing clock-out image: ${imgErr.message}`);
-        // Continue without the image if there's an error
+        return res.status(400).json({ error: `Image processing error: ${imgErr.message}` });
       }
     }
 
