@@ -118,7 +118,7 @@ const Camera = ({ onCapture, onClear }) => {
       // Always use simpler constraints, especially for iOS
       const constraints = {
         video: {
-          facingMode: 'environment', // Always use back camera
+          facingMode: 'user', // Always use FRONT camera
           width: { ideal: 640 },     // Lower resolution 
           height: { ideal: 480 }
         }
@@ -128,7 +128,7 @@ const Camera = ({ onCapture, onClear }) => {
       if (isIOS) {
         debugLog('Using iOS specific camera constraints');
         // iOS works better with very simple constraints
-        constraints.video = { facingMode: 'environment' };
+        constraints.video = { facingMode: 'user' }; // Ensure front camera for iOS too
       }
       
       debugLog('Using camera constraints:', constraints);

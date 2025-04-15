@@ -320,9 +320,28 @@ function App() {
         }
       }
       
-      // If still no user data and not a new user, show emergency form
+      // FINAL CHECK: If still no user data and not a new user, try fetching directly
+      if (!userData && !isNewUser && cookieId) {
+        debugLog('Missing user details, attempting final fetch before emergency form');
+        try {
+          const freshStatus = await getUserStatus(cookieId);
+          if (freshStatus && freshStatus.userDetails) {
+            userData = freshStatus.userDetails;
+            setUserDetails(userData); // Update state as well
+            localStorage.setItem('userDetails', JSON.stringify(userData)); // Re-save to local storage
+            debugLog('Successfully fetched user details directly', userData);
+          } else {
+            debugLog('Final fetch failed to retrieve user details');
+          }
+        } catch (fetchError) {
+          console.error('Error during final user status fetch:', fetchError);
+          // Don't block the flow, proceed to check if userData is now available
+        }
+      }
+      
+      // If STILL no user data after all checks, show emergency form
       if (!userData && !isNewUser) {
-        debugLog('No user details available, showing emergency form');
+        debugLog('No user details available after all checks, showing emergency form');
         setShowEmergencyForm(true);
         setLoading(false);
         return;
