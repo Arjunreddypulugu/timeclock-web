@@ -1,3 +1,4 @@
+// Version 1.0.1 - Fix iOS image handling issues
 import React, { useState, useEffect } from 'react';
 import { ThemeProvider } from 'styled-components';
 import theme from './theme';
