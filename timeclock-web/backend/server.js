@@ -3,12 +3,23 @@ const express = require('express');
 const cors = require('cors');
 const sql = require('mssql');
 const cookieParser = require('cookie-parser');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
 
 const app = express();
 
+// Configure multer for file uploads
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 5 * 1024 * 1024, // 5MB max size
+  }
+});
+
 // Middleware
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '10mb' })); // Increased limit for JSON
 app.use(cookieParser());
 
 // Database configuration
@@ -34,6 +45,59 @@ poolConnect.then(() => {
 }).catch(err => {
   console.error('Database connection failed:', err);
 });
+
+// Helper function for processing base64 images
+const processBase64Image = (imageData) => {
+  if (!imageData) return null;
+  
+  try {
+    // Handle different image data formats
+    let base64Data = imageData;
+    let formatMatch = false;
+    
+    // Check if it's a valid data URI
+    if (base64Data.startsWith('data:image/')) {
+      const parts = base64Data.split(',');
+      if (parts.length > 1) {
+        base64Data = parts[1];
+        formatMatch = true;
+      }
+    }
+    
+    // If it's not a recognized format, try to clean it anyway
+    if (!formatMatch) {
+      base64Data = base64Data.replace(/^data:image\/\w+;base64,/, '');
+    }
+    
+    // Clean the base64 string - remove any non-base64 characters
+    base64Data = base64Data.replace(/[^A-Za-z0-9+/=]/g, '');
+    
+    // Add padding if needed (must be multiple of 4)
+    while (base64Data.length % 4 !== 0) {
+      base64Data += '=';
+    }
+    
+    // Safety check - should be a reasonable length
+    if (base64Data.length < 10) {
+      throw new Error('Image data too short to be valid');
+    }
+    
+    const buffer = Buffer.from(base64Data, 'base64');
+    
+    // Basic validation that this looks like an image
+    if (buffer.length < 100) {
+      console.warn('Warning: Very small image buffer');
+    }
+    
+    return buffer;
+  } catch (err) {
+    console.error(`Error processing image: ${err.message}`);
+    if (imageData && typeof imageData === 'string') {
+      console.error(`First 20 chars of image data: ${imageData.substring(0, 20)}...`);
+    }
+    throw err;
+  }
+};
 
 // Get customer name from location
 app.post('/api/verify-location', async (req, res) => {
@@ -118,7 +182,7 @@ app.get('/api/user-status', async (req, res) => {
       `);
 
     res.json({
-      isNewUser: false,
+      isNewUser: userDetails.recordset.length === 0,
       hasOpenSession: openSession.recordset.length > 0,
       openSession: openSession.recordset[0] || null,
       userDetails: userDetails.recordset[0] || null
@@ -161,69 +225,93 @@ app.post('/api/register', async (req, res) => {
   }
 });
 
-// Helper function for processing base64 images
-const processBase64Image = (imageData) => {
-  if (!imageData) return null;
-  
-  try {
-    // Handle different image data formats
-    let base64Data = imageData;
-    let formatMatch = false;
-    
-    // Check if it's a valid data URI
-    if (base64Data.startsWith('data:image/')) {
-      const parts = base64Data.split(',');
-      if (parts.length > 1) {
-        base64Data = parts[1];
-        formatMatch = true;
-      }
-    }
-    
-    // If it's not a recognized format, try to clean it anyway
-    if (!formatMatch) {
-      base64Data = base64Data.replace(/^data:image\/\w+;base64,/, '');
-    }
-    
-    // Clean the base64 string - remove any non-base64 characters
-    base64Data = base64Data.replace(/[^A-Za-z0-9+/=]/g, '');
-    
-    // Add padding if needed (must be multiple of 4)
-    while (base64Data.length % 4 !== 0) {
-      base64Data += '=';
-    }
-    
-    // Safety check - should be a reasonable length
-    if (base64Data.length < 10) {
-      throw new Error('Image data too short to be valid');
-    }
-    
-    const buffer = Buffer.from(base64Data, 'base64');
-    
-    // Basic validation that this looks like an image
-    if (buffer.length < 100) {
-      console.warn('Warning: Very small image buffer');
-    }
-    
-    return buffer;
-  } catch (err) {
-    console.error(`Error processing image: ${err.message}`);
-    if (imageData && typeof imageData === 'string') {
-      console.error(`First 20 chars of image data: ${imageData.substring(0, 20)}...`);
-    }
-    throw err;
+// Common clock-in function for both regular and multipart requests
+const performClockIn = async (subContractor, employee, number, lat, lon, cookie, notes, imageBuffer) => {
+  // Validate required fields
+  if (!subContractor || !employee || !cookie) {
+    throw new Error('Missing required fields');
   }
+
+  // First verify location is valid before allowing clock in
+  const validLocation = await pool.request()
+    .input('lat', sql.Float, lat)
+    .input('lon', sql.Float, lon)
+    .query(`
+      SELECT customer_name
+      FROM LocationCustomerMapping
+      WHERE @lat BETWEEN min_latitude AND max_latitude
+      AND (
+        -- Handle both possibilities for longitude storage (important for negative values)
+        (@lon BETWEEN min_longitude AND max_longitude)
+        OR 
+        (@lon BETWEEN max_longitude AND min_longitude)
+      )
+    `);
+  
+  console.log(`Clock-in location check: lat=${lat}, lon=${lon}, found=${validLocation.recordset.length}`);
+  
+  if (validLocation.recordset.length === 0) {
+    throw new Error('Invalid worksite location. Cannot clock in.');
+  }
+
+  // Check for open session
+  const openSession = await pool.request()
+    .input('cookie', sql.NVarChar, cookie)
+    .query(`
+      SELECT TOP 1 ID FROM TimeClock
+      WHERE Cookie = @cookie AND ClockOut IS NULL
+    `);
+
+  if (openSession.recordset.length > 0) {
+    throw new Error('You already have an open session');
+  }
+
+  // Create the request object
+  const request = pool.request()
+    .input('subContractor', sql.NVarChar, subContractor)
+    .input('employee', sql.NVarChar, employee)
+    .input('number', sql.NVarChar, number)
+    .input('lat', sql.Float, lat)
+    .input('lon', sql.Float, lon)
+    .input('cookie', sql.NVarChar, cookie)
+    .input('notes', sql.NVarChar(sql.MAX), notes || '');
+  
+  // Only add image if it's valid
+  let hasImage = false;
+  if (imageBuffer && imageBuffer.length > 0) {
+    request.input('image', sql.VarBinary(sql.MAX), imageBuffer);
+    hasImage = true;
+  }
+  
+  // Build the query dynamically based on whether we have an image
+  let query = `
+    INSERT INTO TimeClock (
+      SubContractor, Employee, Number, ClockIn, Lat, Lon, Cookie, ClockInNotes
+      ${hasImage ? ', ClockInImage' : ''}
+    )
+    VALUES (
+      @subContractor, @employee, @number, GETDATE(), @lat, @lon, @cookie, @notes
+      ${hasImage ? ', @image' : ''}
+    );
+    SELECT SCOPE_IDENTITY() as id;
+  `;
+  
+  console.log('Executing SQL insert...');
+  const result = await request.query(query);
+  console.log(`Insert completed, new ID: ${result.recordset[0].id}`);
+
+  return { 
+    id: result.recordset[0].id, 
+    customer_name: validLocation.recordset[0].customer_name,
+    imageIncluded: hasImage
+  };
 };
 
-// Clock in
+// Clock in (JSON version)
 app.post('/api/clock-in', async (req, res) => {
   try {
     await poolConnect;
     const { subContractor, employee, number, lat, lon, cookie, notes, image } = req.body;
-
-    // Validate required fields
-    if (!subContractor || !employee || !cookie) {
-      return res.status(400).json({ error: 'Missing required fields' });
-    }
 
     // Process base64 image if provided
     let imageBuffer = null;
@@ -237,77 +325,11 @@ app.post('/api/clock-in', async (req, res) => {
       }
     }
 
-    // First verify location is valid before allowing clock in
-    const validLocation = await pool.request()
-      .input('lat', sql.Float, lat)
-      .input('lon', sql.Float, lon)
-      .query(`
-        SELECT customer_name
-        FROM LocationCustomerMapping
-        WHERE @lat BETWEEN min_latitude AND max_latitude
-        AND (
-          -- Handle both possibilities for longitude storage (important for negative values)
-          (@lon BETWEEN min_longitude AND max_longitude)
-          OR 
-          (@lon BETWEEN max_longitude AND min_longitude)
-        )
-      `);
+    const result = await performClockIn(
+      subContractor, employee, number, lat, lon, cookie, notes, imageBuffer
+    );
     
-    console.log(`Clock-in location check: lat=${lat}, lon=${lon}, found=${validLocation.recordset.length}`);
-    
-    if (validLocation.recordset.length === 0) {
-      return res.status(400).json({ error: 'Invalid worksite location. Cannot clock in.' });
-    }
-
-    // Check for open session
-    const openSession = await pool.request()
-      .input('cookie', sql.NVarChar, cookie)
-      .query(`
-        SELECT TOP 1 ID FROM TimeClock
-        WHERE Cookie = @cookie AND ClockOut IS NULL
-      `);
-
-    if (openSession.recordset.length > 0) {
-      return res.status(400).json({ error: 'You already have an open session' });
-    }
-
-    // Create the request object
-    const request = pool.request()
-      .input('subContractor', sql.NVarChar, subContractor)
-      .input('employee', sql.NVarChar, employee)
-      .input('number', sql.NVarChar, number)
-      .input('lat', sql.Float, lat)
-      .input('lon', sql.Float, lon)
-      .input('cookie', sql.NVarChar, cookie)
-      .input('notes', sql.NVarChar(sql.MAX), notes || '');
-    
-    // Only add image if it's valid
-    if (imageBuffer && imageBuffer.length > 0) {
-      request.input('image', sql.VarBinary(sql.MAX), imageBuffer);
-    }
-    
-    // Build the query dynamically based on whether we have an image
-    let query = `
-      INSERT INTO TimeClock (
-        SubContractor, Employee, Number, ClockIn, Lat, Lon, Cookie, ClockInNotes
-        ${imageBuffer && imageBuffer.length > 0 ? ', ClockInImage' : ''}
-      )
-      VALUES (
-        @subContractor, @employee, @number, GETDATE(), @lat, @lon, @cookie, @notes
-        ${imageBuffer && imageBuffer.length > 0 ? ', @image' : ''}
-      );
-      SELECT SCOPE_IDENTITY() as id;
-    `;
-    
-    console.log('Executing SQL insert...');
-    const result = await request.query(query);
-    console.log(`Insert completed, new ID: ${result.recordset[0].id}`);
-
-    res.json({ 
-      id: result.recordset[0].id, 
-      customer_name: validLocation.recordset[0].customer_name,
-      imageIncluded: !!(imageBuffer && imageBuffer.length > 0)
-    });
+    res.json(result);
   } catch (err) {
     console.error(`Clock in error: ${err.message}`);
     console.error(err.stack);
@@ -315,16 +337,83 @@ app.post('/api/clock-in', async (req, res) => {
   }
 });
 
-// Clock out
+// Clock in (multipart version)
+app.post('/api/clock-in-multipart', upload.single('image'), async (req, res) => {
+  try {
+    await poolConnect;
+    
+    // Get JSON data from form data
+    const jsonData = JSON.parse(req.body.data || '{}');
+    const { subContractor, employee, number, lat, lon, cookie, notes } = jsonData;
+    
+    // Get image from uploaded file
+    let imageBuffer = null;
+    if (req.file) {
+      imageBuffer = req.file.buffer;
+      console.log(`Received multipart image for clock-in: ${imageBuffer.length} bytes`);
+    }
+    
+    const result = await performClockIn(
+      subContractor, employee, number, lat, lon, cookie, notes, imageBuffer
+    );
+    
+    res.json(result);
+  } catch (err) {
+    console.error(`Multipart clock in error: ${err.message}`);
+    console.error(err.stack);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Common clock-out function for both regular and multipart requests
+const performClockOut = async (id, cookie, notes, imageBuffer) => {
+  // Validate required fields
+  if (!id && !cookie) {
+    throw new Error('Missing ID or cookie for clock-out');
+  }
+
+  // Create the request object
+  const request = pool.request()
+    .input('cookie', sql.NVarChar, cookie)
+    .input('notes', sql.NVarChar(sql.MAX), notes || '');
+  
+  // Only add image if it's valid
+  let hasImage = false;
+  if (imageBuffer && imageBuffer.length > 0) {
+    request.input('image', sql.VarBinary(sql.MAX), imageBuffer);
+    hasImage = true;
+  }
+  
+  // Build the query dynamically based on whether we have an image
+  let query = `
+    UPDATE TimeClock 
+    SET ClockOut = GETDATE(),
+        ClockOutNotes = @notes
+        ${hasImage ? ', ClockOutImage = @image' : ''}
+    WHERE Cookie = @cookie AND ClockOut IS NULL;
+    
+    SELECT @@ROWCOUNT as updated;
+  `;
+  
+  console.log('Executing SQL update for clock-out...');
+  const result = await request.query(query);
+  console.log(`Update completed, rows affected: ${result.recordset[0].updated}`);
+
+  if (result.recordset[0].updated === 0) {
+    throw new Error('No open session found');
+  }
+
+  return { 
+    success: true,
+    imageIncluded: hasImage
+  };
+};
+
+// Clock out (JSON version)
 app.post('/api/clock-out', async (req, res) => {
   try {
     await poolConnect;
     const { id, cookie, notes, image } = req.body;
-
-    // Validate required fields
-    if (!id && !cookie) {
-      return res.status(400).json({ error: 'Missing ID or cookie for clock-out' });
-    }
 
     // Process base64 image if provided
     let imageBuffer = null;
@@ -338,39 +427,8 @@ app.post('/api/clock-out', async (req, res) => {
       }
     }
 
-    // Create the request object
-    const request = pool.request()
-      .input('cookie', sql.NVarChar, cookie)
-      .input('notes', sql.NVarChar(sql.MAX), notes || '');
-    
-    // Only add image if it's valid
-    if (imageBuffer && imageBuffer.length > 0) {
-      request.input('image', sql.VarBinary(sql.MAX), imageBuffer);
-    }
-    
-    // Build the query dynamically based on whether we have an image
-    let query = `
-      UPDATE TimeClock 
-      SET ClockOut = GETDATE(),
-          ClockOutNotes = @notes
-          ${imageBuffer && imageBuffer.length > 0 ? ', ClockOutImage = @image' : ''}
-      WHERE Cookie = @cookie AND ClockOut IS NULL;
-      
-      SELECT @@ROWCOUNT as updated;
-    `;
-    
-    console.log('Executing SQL update for clock-out...');
-    const result = await request.query(query);
-    console.log(`Update completed, rows affected: ${result.recordset[0].updated}`);
-
-    if (result.recordset[0].updated === 0) {
-      return res.status(404).json({ error: 'No open session found' });
-    }
-
-    res.json({ 
-      success: true,
-      imageIncluded: !!(imageBuffer && imageBuffer.length > 0)
-    });
+    const result = await performClockOut(id, cookie, notes, imageBuffer);
+    res.json(result);
   } catch (err) {
     console.error(`Clock out error: ${err.message}`);
     console.error(err.stack);
@@ -378,7 +436,32 @@ app.post('/api/clock-out', async (req, res) => {
   }
 });
 
-// Test image upload endpoint
+// Clock out (multipart version)
+app.post('/api/clock-out-multipart', upload.single('image'), async (req, res) => {
+  try {
+    await poolConnect;
+    
+    // Get JSON data from form data
+    const jsonData = JSON.parse(req.body.data || '{}');
+    const { id, cookie, notes } = jsonData;
+    
+    // Get image from uploaded file
+    let imageBuffer = null;
+    if (req.file) {
+      imageBuffer = req.file.buffer;
+      console.log(`Received multipart image for clock-out: ${imageBuffer.length} bytes`);
+    }
+    
+    const result = await performClockOut(id, cookie, notes, imageBuffer);
+    res.json(result);
+  } catch (err) {
+    console.error(`Multipart clock out error: ${err.message}`);
+    console.error(err.stack);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Test image upload endpoint (JSON version)
 app.post('/api/test-image', async (req, res) => {
   try {
     const { image } = req.body;
@@ -390,8 +473,7 @@ app.post('/api/test-image', async (req, res) => {
     
     // Process base64 image
     try {
-      const base64Data = image.replace(/^data:image\/\w+;base64,/, '');
-      const imageBuffer = Buffer.from(base64Data, 'base64');
+      const imageBuffer = processBase64Image(image);
       console.log(`Test image processed: ${imageBuffer.length} bytes`);
       
       // Just for testing, we'll echo back some info but not store it
@@ -409,6 +491,30 @@ app.post('/api/test-image', async (req, res) => {
     }
   } catch (err) {
     console.error(`Test image endpoint error: ${err.message}`);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Test image upload endpoint (multipart version)
+app.post('/api/test-image-multipart', upload.single('image'), async (req, res) => {
+  try {
+    console.log('Test image multipart endpoint called');
+    
+    if (!req.file) {
+      return res.status(400).json({ success: false, error: 'No image provided' });
+    }
+    
+    const imageBuffer = req.file.buffer;
+    console.log(`Test multipart image processed: ${imageBuffer.length} bytes`);
+    
+    // Just for testing, we'll echo back some info but not store it
+    res.json({ 
+      success: true, 
+      imageSize: imageBuffer.length,
+      message: 'Image successfully processed via multipart'
+    });
+  } catch (err) {
+    console.error(`Test image multipart endpoint error: ${err.message}`);
     res.status(500).json({ success: false, error: err.message });
   }
 });

@@ -62,6 +62,7 @@ const Camera = ({ onCapture, onClear }) => {
   const [capturedImage, setCapturedImage] = useState(null);
   const [cameraError, setCameraError] = useState('');
 
+  // Initialize camera on component mount
   useEffect(() => {
     startCamera();
     return () => {
@@ -72,17 +73,23 @@ const Camera = ({ onCapture, onClear }) => {
   const startCamera = async () => {
     try {
       setCameraError('');
+      
+      // Basic constraints - no fancy options that might not be supported
       const constraints = {
-        video: {
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-          facingMode: 'user'
-        }
+        video: true,
+        audio: false
       };
+      
+      console.log('Requesting camera access with constraints:', constraints);
       const mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+      
+      // Successfully got camera access
+      console.log('Camera access granted');
       setStream(mediaStream);
+      
       if (videoRef.current) {
         videoRef.current.srcObject = mediaStream;
+        console.log('Video element connected to stream');
       }
     } catch (err) {
       console.error('Error accessing camera:', err);
@@ -92,51 +99,58 @@ const Camera = ({ onCapture, onClear }) => {
 
   const stopCamera = () => {
     if (stream) {
-      stream.getTracks().forEach(track => track.stop());
+      console.log('Stopping camera stream');
+      stream.getTracks().forEach(track => {
+        track.stop();
+      });
       setStream(null);
     }
   };
 
   const capturePhoto = () => {
-    if (!videoRef.current || !canvasRef.current) return;
+    console.log('Attempting to capture photo');
+    if (!videoRef.current || !canvasRef.current) {
+      console.error('Video or canvas ref is null');
+      return;
+    }
 
     const video = videoRef.current;
     const canvas = canvasRef.current;
     
-    // Set canvas dimensions to match video
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    
-    // Draw video frame on canvas
-    const context = canvas.getContext('2d');
-    context.drawImage(video, 0, 0, canvas.width, canvas.height);
-    
     try {
-      // Get base64 data directly from canvas - with explicit MIME type for Safari
-      const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
-      // Safari needs explicit mime type and lower quality
-      const base64data = canvas.toDataURL(isSafari ? 'image/jpeg' : 'image/jpeg', isSafari ? 0.5 : 0.8);
+      // Keep resolution small for compatibility
+      const width = 640;
+      const height = 480;
       
-      // For Safari, we need to make sure the image isn't too large
-      if (isSafari && base64data.length > 500000) {
-        // If it's too large, resize the canvas and redraw with smaller dimensions
-        const scaleFactor = 0.5;
-        canvas.width = video.videoWidth * scaleFactor;
-        canvas.height = video.videoHeight * scaleFactor;
-        context.drawImage(video, 0, 0, canvas.width, canvas.height);
-        const resizedData = canvas.toDataURL('image/jpeg', 0.5);
-        setCapturedImage(resizedData);
-        onCapture(resizedData);
-      } else {
+      canvas.width = width;
+      canvas.height = height;
+      
+      // Draw video frame on canvas
+      const context = canvas.getContext('2d');
+      context.drawImage(video, 0, 0, width, height);
+      
+      console.log('Image captured and drawn to canvas');
+      
+      // Convert to data URL with low quality JPEG to ensure compatibility
+      const base64data = canvas.toDataURL('image/jpeg', 0.5);
+      console.log('Image converted to data URL, size:', base64data.length);
+      
+      // Safety check for image data
+      if (base64data && base64data.startsWith('data:image/')) {
         setCapturedImage(base64data);
         onCapture(base64data);
+        console.log('Image successfully captured and set');
+      } else {
+        throw new Error('Invalid image data generated');
       }
     } catch (err) {
       console.error('Error capturing photo:', err);
+      setCameraError(`Failed to capture photo: ${err.message}`);
     }
   };
 
   const retakePhoto = () => {
+    console.log('Retaking photo');
     setCapturedImage(null);
     if (onClear) onClear();
     startCamera();
