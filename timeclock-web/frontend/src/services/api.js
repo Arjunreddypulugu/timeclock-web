@@ -81,6 +81,9 @@ export const checkUserStatus = async (userId) => {
   }
 };
 
+// Alias for checkUserStatus to maintain backward compatibility
+export const getUserStatus = checkUserStatus;
+
 // Clock in a user
 export const clockIn = async (clockInData) => {
   try {
