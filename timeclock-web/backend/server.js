@@ -137,31 +137,61 @@ app.post('/api/register', async (req, res) => {
   try {
     await poolConnect;
     const { subContractor, employee, number, cookie } = req.body;
-    
-    // Check if user already exists
-    const existingUser = await pool.request()
-      .input('subContractor', sql.NVarChar, subContractor)
-      .input('employee', sql.NVarChar, employee)
-      .query(`
-        SELECT * FROM SubContractorEmployees
-        WHERE SubContractor = @subContractor AND Employee = @employee
-      `);
+    console.log(`Registration attempt:`, { subContractor, employee, number, cookie }); // Keep minimal log
 
-    if (existingUser.recordset.length === 0) {
-      // Add to SubContractorEmployees
-      await pool.request()
-        .input('subContractor', sql.NVarChar, subContractor)
-        .input('employee', sql.NVarChar, employee)
-        .input('number', sql.NVarChar, number)
-        .query(`
-          INSERT INTO SubContractorEmployees (SubContractor, Employee, Number)
-          VALUES (@subContractor, @employee, @number)
-        `);
+    if (!subContractor || !employee || !number || !cookie) {
+      return res.status(400).json({ error: 'Missing required fields for registration' });
     }
 
-    res.json({ success: true });
+    const transaction = new sql.Transaction(pool);
+    await transaction.begin();
+
+    try {
+      // Step 1: Check/Insert into SubContractorEmployees
+      const employeeRequest = new sql.Request(transaction);
+      const existingUser = await employeeRequest
+        .input('subContractor', sql.NVarChar, subContractor)
+        .input('employee', sql.NVarChar, employee)
+        .query(`SELECT Employee FROM SubContractorEmployees WHERE SubContractor = @subContractor AND Employee = @employee`);
+
+      if (existingUser.recordset.length === 0) {
+        const insertEmployeeRequest = new sql.Request(transaction);
+        await insertEmployeeRequest
+          .input('subContractor', sql.NVarChar, subContractor)
+          .input('employee', sql.NVarChar, employee)
+          .input('number', sql.NVarChar, number)
+          .query(`INSERT INTO SubContractorEmployees (SubContractor, Employee, Number) VALUES (@subContractor, @employee, @number)`);
+      }
+
+      // Step 2: Insert minimal placeholder into TimeClock to link cookie if it doesn't exist
+      const cookieCheckRequest = new sql.Request(transaction);
+      const existingCookieEntry = await cookieCheckRequest
+        .input('cookie', sql.NVarChar, cookie)
+        .query(`SELECT TOP 1 ID FROM TimeClock WHERE Cookie = @cookie`);
+
+      if (existingCookieEntry.recordset.length === 0) {
+        console.log(`Inserting minimal TimeClock record for cookie ${cookie}`); // Keep minimal log
+        const insertTimeClockRequest = new sql.Request(transaction);
+        await insertTimeClockRequest
+          .input('subContractor', sql.NVarChar, subContractor)
+          .input('employee', sql.NVarChar, employee)
+          .input('number', sql.NVarChar, number)
+          .input('cookie', sql.NVarChar, cookie)
+          .query(`INSERT INTO TimeClock (SubContractor, Employee, Number, Cookie, ClockIn) VALUES (@subContractor, @employee, @number, @cookie, NULL)`);
+      }
+
+      await transaction.commit();
+      res.json({ success: true });
+
+    } catch (err) {
+      console.error('Error during registration transaction:', err); // Keep minimal log
+      await transaction.rollback();
+      res.status(500).json({ error: `Registration failed: ${err.message}` });
+    }
+
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('Error setting up registration:', err); // Keep minimal log
+    res.status(500).json({ error: `Registration setup failed: ${err.message}` });
   }
 });
 
@@ -652,62 +682,95 @@ app.get('/api/subcontractor-links', async (req, res) => {
 });
 
 // Special endpoints for multipart form data (iOS Safari)
-app.post('/clock-in-multipart', upload.single('image'), async (req, res) => {
+app.post('/api/clock-in-multipart', upload.single('image'), async (req, res) => {
   try {
-    console.log('Received multipart clock-in request');
+    await poolConnect;
+    // Keep minimal logs
+    console.log('Received multipart clock-in request from:', req.body.browserInfo, req.body.isMobile ? '(Mobile)' : '(Desktop)');
     
-    // Extract data from form fields
+    // Extract data from form fields (req.body)
     const { subContractor, employee, number, lat, lon, cookie, notes } = req.body;
-    
-    // Get image data from either the file or the imageData field
-    let imageData = null;
+
+    // Basic validation
+    if (!subContractor || !employee || !number || !lat || !lon || !cookie) {
+      console.error('Multipart clock-in missing required fields');
+      return res.status(400).json({ error: 'Missing required fields in multipart request' });
+    }
+
+    // Process image
+    let imageBuffer = null;
     if (req.file) {
-      // If file was uploaded as binary
-      console.log('Image received as binary file');
-      const base64Image = req.file.buffer.toString('base64');
-      const mimeType = req.file.mimetype || 'image/jpeg';
-      imageData = `data:${mimeType};base64,${base64Image}`;
+      imageBuffer = req.file.buffer;
     } else if (req.body.imageData) {
-      // If image was sent as base64 string
-      console.log('Image received as base64 string');
-      imageData = req.body.imageData;
+      try {
+        const base64Data = req.body.imageData.replace(/^data:image\/\w+;base64,/, '');
+        imageBuffer = Buffer.from(base64Data, 'base64');
+      } catch (imgErr) {
+        console.error(`Multipart image processing error: ${imgErr.message}`);
+        return res.status(400).json({ error: `Image processing error: ${imgErr.message}` });
+      }
     }
-    
-    // Create a clock-in record in the same way as the JSON endpoint
-    const pool = await sql.connect(dbConfig);
-    
-    // Check for existing user
-    const userCheck = await pool.request()
-      .input('cookie', sql.NVarChar, cookie)
-      .query('SELECT * FROM TimeClock WHERE Cookie = @cookie');
-      
-    if (userCheck.recordset.length === 0) {
-      console.log('User not found in clock-in-multipart');
-      return res.status(404).json({ error: 'User not found' });
+    // Basic image size validation
+    if (imageBuffer && imageBuffer.length < 100) {
+      return res.status(400).json({ error: 'The provided image appears to be invalid or too small.' });
     }
-    
-    const userId = userCheck.recordset[0].ID;
-    
-    // Create clock-in record
-    await pool.request()
-      .input('userId', sql.Int, userId)
+
+    // Verify worksite location
+    const validLocation = await pool.request()
       .input('lat', sql.Float, parseFloat(lat))
       .input('lon', sql.Float, parseFloat(lon))
-      .input('clockInImage', sql.NVarChar, imageData || null)
-      .input('notes', sql.NVarChar, notes || null)
-      .query(`
-        INSERT INTO TimeClock (
-          ID, ClockIn, ClockInLat, ClockInLon, ClockInImage, ClockInNotes
-        )
-        VALUES (
-          @userId, GETDATE(), @lat, @lon, @clockInImage, @notes
-        );
-      `);
+      .query(`SELECT TOP 1 customer_name FROM LocationCustomerMapping WHERE @lat BETWEEN min_latitude AND max_latitude AND (@lon BETWEEN min_longitude AND max_longitude OR @lon BETWEEN max_longitude AND min_longitude)`);
+    
+    if (validLocation.recordset.length === 0) {
+      return res.status(400).json({ error: 'Invalid worksite location. Cannot clock in.' });
+    }
+
+    // Check for open session
+    const openSession = await pool.request()
+      .input('cookie', sql.NVarChar, cookie)
+      .query(`SELECT TOP 1 ID FROM TimeClock WHERE Cookie = @cookie AND ClockOut IS NULL`);
+
+    if (openSession.recordset.length > 0) {
+      return res.status(400).json({ error: 'You already have an open session' });
+    }
+
+    // Prepare SQL request
+    const request = pool.request()
+      .input('subContractor', sql.NVarChar, subContractor)
+      .input('employee', sql.NVarChar, employee)
+      .input('number', sql.NVarChar, number)
+      .input('lat', sql.Float, parseFloat(lat))
+      .input('lon', sql.Float, parseFloat(lon))
+      .input('cookie', sql.NVarChar, cookie)
+      .input('notes', sql.NVarChar(sql.MAX), notes || '');
+    
+    if (imageBuffer) {
+      request.input('image', sql.VarBinary(sql.MAX), imageBuffer);
+    }
+    
+    // Build query
+    let query = `
+      INSERT INTO TimeClock (SubContractor, Employee, Number, ClockIn, Lat, Lon, Cookie, ClockInNotes${imageBuffer ? ', ClockInImage' : ''})
+      VALUES (@subContractor, @employee, @number, GETDATE(), @lat, @lon, @cookie, @notes${imageBuffer ? ', @image' : ''});
+      SELECT SCOPE_IDENTITY() as id;
+    `;
+    
+    // Execute query
+    const result = await request.query(query);
+    const newId = result.recordset[0].id;
       
-    return res.json({ success: true, message: 'Clock in successful' });
+    // Respond
+    res.json({
+      id: newId,
+      customer_name: validLocation.recordset[0].customer_name,
+      imageIncluded: !!imageBuffer,
+      browser: req.body.browserInfo,
+      isMobile: req.body.isMobile === 'true'
+    });
+
   } catch (error) {
-    console.error('Error in clock-in-multipart:', error);
-    return res.status(500).json({ error: error.message });
+    console.error('Error in /api/clock-in-multipart:', error); // Keep minimal log
+    res.status(500).json({ error: `Server error during multipart clock-in: ${error.message}` });
   }
 });
 
