@@ -8,6 +8,7 @@ import LocationCard from './components/LocationCard';
 import RegistrationForm from './components/RegistrationForm';
 import TimeClockCard from './components/TimeClockCard';
 import Camera from './components/Camera';
+import CaptureOptions from './components/CaptureOptions';
 import Button from './components/Button';
 import { verifyLocation, getUserStatus, registerUser, clockIn, clockOut } from './services/api';
 import styled from 'styled-components';
@@ -304,113 +305,61 @@ function App() {
         throw new Error('Invalid image format. Please retake the photo.');
       }
       
-      // iOS Safari special handling - ensure fields are properly sent
-      let tempUserInfo = userDetails;
+      // Use the stored user data if available, simplifying the process
+      let userData = userDetails;
       
-      // For iOS Safari, double-check we have user details
-      if (browserInfo.browser === 'Safari' && browserInfo.isIOS) {
-        debugLog('iOS Safari detected, ensuring user details are available');
-        
-        // Try emergency data first
-        const emergencyData = {
-          SubContractor: emergencySubContractor,
-          Employee: emergencyEmployee,
-          Number: emergencyNumber
-        };
-        
-        if (emergencyData.Employee && emergencyData.SubContractor && emergencyData.Number) {
-          tempUserInfo = emergencyData;
-          debugLog('Using emergency data for iOS', emergencyData);
-        }
-        // If we still don't have user details, show emergency form
-        else if (!tempUserInfo && !isNewUser) {
+      // If we don't have user details but there's a cookie, try to get from localStorage
+      if (!userData && !isNewUser) {
+        try {
           const storedUser = localStorage.getItem('userDetails');
           if (storedUser) {
-            try {
-              tempUserInfo = JSON.parse(storedUser);
-              debugLog('Retrieved user details from localStorage', tempUserInfo);
-            } catch (e) {
-              console.error('Error parsing stored user details:', e);
-            }
+            userData = JSON.parse(storedUser);
+            debugLog('Retrieved user details from localStorage', userData);
           }
-          
-          // If we STILL don't have details, show emergency form
-          if (!tempUserInfo || !tempUserInfo.Employee || !tempUserInfo.SubContractor || !tempUserInfo.Number) {
-            debugLog('No user details available, showing emergency form');
-            setShowEmergencyForm(true);
-            setLoading(false);
-            return; // Exit early, will continue after emergency form
-          }
+        } catch (e) {
+          console.error('Error parsing stored user details:', e);
         }
       }
       
-      // Ensure all fields are explicitly defined with STRICT validation for iOS
+      // If still no user data and not a new user, show emergency form
+      if (!userData && !isNewUser) {
+        debugLog('No user details available, showing emergency form');
+        setShowEmergencyForm(true);
+        setLoading(false);
+        return;
+      }
+      
+      // Prepare clock-in data with all fields explicitly defined
       const clockInData = {
-        subContractor: ((tempUserInfo?.SubContractor || subContractor || emergencySubContractor || '') + '').trim(),
-        employee: ((tempUserInfo?.Employee || employeeName || emergencyEmployee || '') + '').trim(),
-        number: ((tempUserInfo?.Number || phoneNumber || emergencyNumber || '') + '').trim(),
+        subContractor: (userData?.SubContractor || subContractor || '').trim(),
+        employee: (userData?.Employee || employeeName || '').trim(),
+        number: (userData?.Number || phoneNumber || '').trim(),
         lat: location.lat,
         lon: location.lon,
         cookie: cookieId,
         notes: notes || '',
-        image: clockInImage,
-        // Include browser info in payload to help server with debugging
-        browserInfo: browserInfo.browser,
-        isMobile: browserInfo.isMobile
+        image: clockInImage
       };
       
-      // Super strict validation for iOS
-      if (browserInfo.isIOS) {
-        // Force these fields to be strings
-        clockInData.subContractor = String(clockInData.subContractor || '');
-        clockInData.employee = String(clockInData.employee || '');
-        clockInData.number = String(clockInData.number || '');
-        
-        // Save emergency data
-        localStorage.setItem('emergencyUserData', JSON.stringify({
-          subContractor: clockInData.subContractor,
-          employee: clockInData.employee,
-          number: clockInData.number
-        }));
-      }
-      
-      // Verify required fields
-      const missingFields = [];
-      if (!clockInData.subContractor) missingFields.push('subContractor');
-      if (!clockInData.employee) missingFields.push('employee');
-      if (!clockInData.number) missingFields.push('number');
-      if (!clockInData.lat) missingFields.push('lat');
-      if (!clockInData.lon) missingFields.push('lon');
-      if (!clockInData.cookie) missingFields.push('cookie');
+      // Validate required fields
+      const requiredFields = ['subContractor', 'employee', 'number', 'lat', 'lon', 'cookie'];
+      const missingFields = requiredFields.filter(field => !clockInData[field]);
       
       if (missingFields.length > 0) {
         debugLog('Missing required fields', missingFields);
-        
-        // For iOS, show emergency form instead of error
-        if (browserInfo.isIOS) {
-          setShowEmergencyForm(true);
-          const errorMessage = `Missing required fields: ${missingFields.join(', ')}`;
-          setError(errorMessage + '. Please fill in the form below.');
-          setLoading(false);
-          return;
-        }
-        
-        throw new Error(`Missing required fields: ${missingFields.join(', ')}`);
+        setShowEmergencyForm(true);
+        const errorMessage = `Missing required fields: ${missingFields.join(', ')}`;
+        setError(errorMessage + '. Please fill in the form below.');
+        setLoading(false);
+        return;
       }
       
-      // Special handling for Safari
-      if (browserInfo.browser === 'Safari' && browserInfo.isIOS) {
-        debugLog('Using Safari-specific clock-in process', clockInData);
-        
-        // Save the user details to localStorage for future use
-        if (clockInData.employee && clockInData.subContractor) {
-          localStorage.setItem('userDetails', JSON.stringify({
-            SubContractor: clockInData.subContractor,
-            Employee: clockInData.employee,
-            Number: clockInData.number
-          }));
-        }
-      }
+      // Save the current user details to localStorage for future use
+      localStorage.setItem('userDetails', JSON.stringify({
+        SubContractor: clockInData.subContractor,
+        Employee: clockInData.employee,
+        Number: clockInData.number
+      }));
       
       debugLog(`Sending clock-in data for ${clockInData.employee} at location ${location.lat},${location.lon}`);
       
@@ -432,42 +381,18 @@ function App() {
         console.error('Clock in API error:', apiError);
         let errorMessage = apiError.message || 'Unknown error';
         
-        // If we get missing fields error, be more specific
-        if (errorMessage.includes('Missing required fields')) {
-          if (apiError.missing) {
-            const missing = Object.entries(apiError.missing)
-              .filter(([_, isMissing]) => isMissing)
-              .map(([field]) => field);
-            
-            errorMessage = `Missing required fields: ${missing.join(', ')}`;
-            
-            // On iOS, show emergency form
-            if (browserInfo.isIOS) {
-              setShowEmergencyForm(true);
-              setError(errorMessage + '. Please fill in the form below.');
-              setLoading(false);
-              return;
-            }
-          }
-        }
-        
         // More user-friendly error messages
         if (errorMessage.includes('Failed to parse server response')) {
           errorMessage = 'The server returned an invalid response. Please try again.';
-          
-          // For Safari, provide more specific guidance
-          if (browserInfo.browser === 'Safari') {
-            errorMessage += ' This issue is more common on Safari. Try using Chrome if available.';
-          }
         } else if (errorMessage.includes('image')) {
-          errorMessage = 'There was a problem with your photo. Please retake it.';
-          
-          // For Safari, add extra suggestions
-          if (browserInfo.browser === 'Safari') {
-            errorMessage += ' Make sure you are in a well-lit area and the camera has good focus.';
-          }
+          errorMessage = 'There was a problem with your photo. Please try again using the Upload option.';
         } else if (errorMessage.includes('network')) {
           errorMessage = 'Network error. Please check your connection and try again.';
+        } else if (errorMessage.includes('Missing required fields')) {
+          setShowEmergencyForm(true);
+          errorMessage += '. Please fill in the form below.';
+          setLoading(false);
+          return;
         }
         
         setError('Clock in failed: ' + errorMessage);
@@ -694,9 +619,10 @@ function App() {
         {showCamera ? (
           <div>
             <h2>{captureMode === 'clockIn' ? 'Take Clock-In Photo' : 'Take Clock-Out Photo'}</h2>
-            <Camera 
+            <CaptureOptions 
               onCapture={handleCaptureImage}
               onClear={() => handleCaptureImage('')}
+              mode={captureMode}
             />
             <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center' }}>
               <Button 
@@ -716,15 +642,6 @@ function App() {
                 {captureMode === 'clockIn' ? 'Complete Clock In' : 'Complete Clock Out'}
               </Button>
             </div>
-            
-            {/* Safari-specific guidance */}
-            {browserInfo.browser === 'Safari' && (
-              <div style={{ marginTop: '20px', padding: '10px', backgroundColor: '#f8f9fa', borderRadius: '5px' }}>
-                <p style={{ fontSize: '14px', textAlign: 'center' }}>
-                  <strong>Note for Safari users:</strong> If you encounter issues, try using Chrome for best results.
-                </p>
-              </div>
-            )}
           </div>
         ) : (
           <>
