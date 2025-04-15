@@ -112,10 +112,25 @@ const Camera = ({ onCapture, onClear }) => {
     context.drawImage(video, 0, 0, canvas.width, canvas.height);
     
     try {
-      // Get base64 data directly from canvas - more reliable across browsers
-      const base64data = canvas.toDataURL('image/jpeg', 0.8);
-      setCapturedImage(base64data);
-      onCapture(base64data);
+      // Get base64 data directly from canvas - with explicit MIME type for Safari
+      const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+      // Safari needs explicit mime type and lower quality
+      const base64data = canvas.toDataURL(isSafari ? 'image/jpeg' : 'image/jpeg', isSafari ? 0.5 : 0.8);
+      
+      // For Safari, we need to make sure the image isn't too large
+      if (isSafari && base64data.length > 500000) {
+        // If it's too large, resize the canvas and redraw with smaller dimensions
+        const scaleFactor = 0.5;
+        canvas.width = video.videoWidth * scaleFactor;
+        canvas.height = video.videoHeight * scaleFactor;
+        context.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const resizedData = canvas.toDataURL('image/jpeg', 0.5);
+        setCapturedImage(resizedData);
+        onCapture(resizedData);
+      } else {
+        setCapturedImage(base64data);
+        onCapture(base64data);
+      }
     } catch (err) {
       console.error('Error capturing photo:', err);
     }

@@ -161,6 +161,59 @@ app.post('/api/register', async (req, res) => {
   }
 });
 
+// Helper function for processing base64 images
+const processBase64Image = (imageData) => {
+  if (!imageData) return null;
+  
+  try {
+    // Handle different image data formats
+    let base64Data = imageData;
+    let formatMatch = false;
+    
+    // Check if it's a valid data URI
+    if (base64Data.startsWith('data:image/')) {
+      const parts = base64Data.split(',');
+      if (parts.length > 1) {
+        base64Data = parts[1];
+        formatMatch = true;
+      }
+    }
+    
+    // If it's not a recognized format, try to clean it anyway
+    if (!formatMatch) {
+      base64Data = base64Data.replace(/^data:image\/\w+;base64,/, '');
+    }
+    
+    // Clean the base64 string - remove any non-base64 characters
+    base64Data = base64Data.replace(/[^A-Za-z0-9+/=]/g, '');
+    
+    // Add padding if needed (must be multiple of 4)
+    while (base64Data.length % 4 !== 0) {
+      base64Data += '=';
+    }
+    
+    // Safety check - should be a reasonable length
+    if (base64Data.length < 10) {
+      throw new Error('Image data too short to be valid');
+    }
+    
+    const buffer = Buffer.from(base64Data, 'base64');
+    
+    // Basic validation that this looks like an image
+    if (buffer.length < 100) {
+      console.warn('Warning: Very small image buffer');
+    }
+    
+    return buffer;
+  } catch (err) {
+    console.error(`Error processing image: ${err.message}`);
+    if (imageData && typeof imageData === 'string') {
+      console.error(`First 20 chars of image data: ${imageData.substring(0, 20)}...`);
+    }
+    throw err;
+  }
+};
+
 // Clock in
 app.post('/api/clock-in', async (req, res) => {
   try {
@@ -176,22 +229,8 @@ app.post('/api/clock-in', async (req, res) => {
     let imageBuffer = null;
     if (image) {
       try {
-        // Handle different image data formats
-        let base64Data = image;
-        if (base64Data.startsWith('data:image/')) {
-          base64Data = base64Data.split(',')[1];
-        } else {
-          // If it's already base64 without prefix
-          base64Data = base64Data.replace(/^data:image\/\w+;base64,/, '');
-        }
-        
-        imageBuffer = Buffer.from(base64Data, 'base64');
-        console.log(`Received image for clock-in: ${imageBuffer.length} bytes`);
-        
-        // Validate image size
-        if (imageBuffer.length < 100) {
-          console.warn('Very small image received, might be invalid');
-        }
+        imageBuffer = processBase64Image(image);
+        console.log(`Received image for clock-in: ${imageBuffer ? imageBuffer.length : 0} bytes`);
       } catch (imgErr) {
         console.error(`Error processing image: ${imgErr.message}`);
         return res.status(400).json({ error: `Image processing failed: ${imgErr.message}` });
@@ -291,22 +330,8 @@ app.post('/api/clock-out', async (req, res) => {
     let imageBuffer = null;
     if (image) {
       try {
-        // Handle different image data formats
-        let base64Data = image;
-        if (base64Data.startsWith('data:image/')) {
-          base64Data = base64Data.split(',')[1];
-        } else {
-          // If it's already base64 without prefix
-          base64Data = base64Data.replace(/^data:image\/\w+;base64,/, '');
-        }
-        
-        imageBuffer = Buffer.from(base64Data, 'base64');
-        console.log(`Received image for clock-out: ${imageBuffer.length} bytes`);
-        
-        // Validate image size
-        if (imageBuffer.length < 100) {
-          console.warn('Very small image received, might be invalid');
-        }
+        imageBuffer = processBase64Image(image);
+        console.log(`Received image for clock-out: ${imageBuffer ? imageBuffer.length : 0} bytes`);
       } catch (imgErr) {
         console.error(`Error processing image: ${imgErr.message}`);
         return res.status(400).json({ error: `Image processing failed: ${imgErr.message}` });

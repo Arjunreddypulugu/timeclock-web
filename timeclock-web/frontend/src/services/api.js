@@ -52,9 +52,28 @@ export const clockIn = async (clockInData) => {
     
     // Ensure image is properly formatted for all browsers
     if (safeData.image && typeof safeData.image === 'string') {
-      // Make sure image has the correct data URI prefix
-      if (!safeData.image.startsWith('data:image/')) {
-        safeData.image = 'data:image/jpeg;base64,' + safeData.image.replace(/^data:image\/\w+;base64,/, '');
+      // Safari compatibility fix
+      try {
+        // Make sure image has the correct data URI prefix
+        if (!safeData.image.startsWith('data:image/')) {
+          safeData.image = 'data:image/jpeg;base64,' + safeData.image.replace(/^data:image\/\w+;base64,/, '');
+        }
+        
+        // Clean up the base64 string for Safari - remove any whitespace or non-base64 characters
+        const parts = safeData.image.split(',');
+        if (parts.length > 1) {
+          const prefix = parts[0];
+          // Clean the base64 part - Keep only valid base64 characters
+          let cleanBase64 = parts[1].replace(/[^A-Za-z0-9+/=]/g, '');
+          // Make sure the string length is a multiple of 4 (required for valid base64)
+          while (cleanBase64.length % 4 !== 0) {
+            cleanBase64 += '=';
+          }
+          safeData.image = prefix + ',' + cleanBase64;
+        }
+      } catch (err) {
+        console.error('Error formatting image data:', err);
+        // Don't throw here, let the server handle it
       }
     }
     
@@ -97,9 +116,28 @@ export const clockOut = async (clockOutData) => {
     
     // Ensure image is properly formatted for all browsers
     if (safeData.image && typeof safeData.image === 'string') {
-      // Make sure image has the correct data URI prefix
-      if (!safeData.image.startsWith('data:image/')) {
-        safeData.image = 'data:image/jpeg;base64,' + safeData.image.replace(/^data:image\/\w+;base64,/, '');
+      // Safari compatibility fix
+      try {
+        // Make sure image has the correct data URI prefix
+        if (!safeData.image.startsWith('data:image/')) {
+          safeData.image = 'data:image/jpeg;base64,' + safeData.image.replace(/^data:image\/\w+;base64,/, '');
+        }
+        
+        // Clean up the base64 string for Safari - remove any whitespace or non-base64 characters
+        const parts = safeData.image.split(',');
+        if (parts.length > 1) {
+          const prefix = parts[0];
+          // Clean the base64 part - Keep only valid base64 characters
+          let cleanBase64 = parts[1].replace(/[^A-Za-z0-9+/=]/g, '');
+          // Make sure the string length is a multiple of 4 (required for valid base64)
+          while (cleanBase64.length % 4 !== 0) {
+            cleanBase64 += '=';
+          }
+          safeData.image = prefix + ',' + cleanBase64;
+        }
+      } catch (err) {
+        console.error('Error formatting image data:', err);
+        // Don't throw here, let the server handle it
       }
     }
     
