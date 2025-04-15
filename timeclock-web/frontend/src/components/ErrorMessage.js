@@ -1,25 +1,28 @@
 import React from 'react';
-import { Box, Typography } from '@mui/material';
-import styled from '@emotion/styled';
+import styled from 'styled-components';
 
-const ErrorContainer = styled(Box)(({ theme }) => ({
-  backgroundColor: theme.palette.error.light,
-  color: theme.palette.error.contrastText,
-  padding: theme.spacing(2),
-  borderRadius: theme.shape.borderRadius,
-  marginBottom: theme.spacing(2),
-  marginTop: theme.spacing(2),
-  width: '100%',
-  textAlign: 'center',
-  boxShadow: theme.shadows[2]
-}));
+const ErrorContainer = styled.div`
+  background-color: ${props => props.theme.colors.danger || '#f44336'};
+  color: #fff;
+  padding: 16px;
+  border-radius: 4px;
+  margin-bottom: 16px;
+  margin-top: 16px;
+  width: 100%;
+  text-align: center;
+  box-shadow: 0px 2px 4px rgba(0, 0, 0, 0.2);
+`;
+
+const ErrorText = styled.p`
+  margin: 0;
+`;
 
 const ErrorMessage = ({ message }) => {
   if (!message) return null;
   
   return (
     <ErrorContainer>
-      <Typography variant="body1">{message}</Typography>
+      <ErrorText>{message}</ErrorText>
     </ErrorContainer>
   );
 };
