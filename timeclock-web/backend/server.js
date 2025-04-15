@@ -168,7 +168,10 @@ app.post('/api/clock-in', async (req, res) => {
     
     // Log the request but omit the image data
     const { image, ...logData } = req.body;
-    console.log('Clock-in request received:', logData);
+    const browser = req.headers['x-browser'] || 'Unknown';
+    const isMobile = req.headers['x-mobile'] === 'true';
+    
+    console.log(`Clock-in request received from ${browser}${isMobile ? ' mobile' : ''}:`, logData);
     
     // Validate required fields
     const { subContractor, employee, number, lat, lon, cookie, notes } = req.body;
@@ -182,30 +185,78 @@ app.post('/api/clock-in', async (req, res) => {
       try {
         // Handle different image encodings from different browsers
         let base64Data;
-        if (image.startsWith('data:image/')) {
-          // Remove data URI prefix (e.g., 'data:image/jpeg;base64,')
-          base64Data = image.split(',')[1];
+        
+        // Handle Safari's unique formatting
+        if (browser === 'Safari') {
+          console.log('Processing image from Safari browser');
+          
+          if (image.startsWith('data:image/')) {
+            // Split on comma and take the second part
+            const parts = image.split(',');
+            if (parts.length >= 2) {
+              base64Data = parts[1].trim();
+            } else {
+              return res.status(400).json({ 
+                error: 'Invalid image format from Safari. Please try again.' 
+              });
+            }
+          } else {
+            // Try to clean the data - Safari sometimes adds whitespace
+            base64Data = image.replace(/\s/g, '');
+          }
         } else {
-          base64Data = image;
+          // Standard processing for other browsers
+          if (image.startsWith('data:image/')) {
+            // Remove data URI prefix (e.g., 'data:image/jpeg;base64,')
+            base64Data = image.split(',')[1];
+          } else {
+            base64Data = image;
+          }
         }
         
-        // Verify the base64 string is valid
-        if (!/^[A-Za-z0-9+/=]+$/.test(base64Data)) {
-          console.warn('Invalid base64 characters in image data');
-          return res.status(400).json({ error: 'The image data contains invalid characters' });
+        // Extra logging for debugging Safari issues
+        if (browser === 'Safari') {
+          console.log(`Safari image data length: ${base64Data.length}`);
+          console.log(`First 20 chars: ${base64Data.substring(0, 20)}...`);
+          console.log(`Last 20 chars: ${base64Data.substring(base64Data.length - 20)}...`);
+        }
+        
+        // Verify the base64 string is valid - with extra care for Safari
+        const validBase64Regex = /^[A-Za-z0-9+/=]+$/;
+        if (!validBase64Regex.test(base64Data)) {
+          console.warn(`Invalid base64 characters in image data from ${browser}`);
+          
+          // For Safari, try to clean the string more aggressively
+          if (browser === 'Safari') {
+            base64Data = base64Data.replace(/[^A-Za-z0-9+/=]/g, '');
+            
+            // Check again after cleaning
+            if (!validBase64Regex.test(base64Data)) {
+              return res.status(400).json({ 
+                error: 'The image data contains invalid characters. Please retake the photo.' 
+              });
+            }
+            console.log('Successfully cleaned Safari image data');
+          } else {
+            return res.status(400).json({ 
+              error: 'The image data contains invalid characters' 
+            });
+          }
         }
         
         // Create buffer from base64
         imageBuffer = Buffer.from(base64Data, 'base64');
-        console.log(`Received image for clock-in: ${imageBuffer.length} bytes`);
+        console.log(`Received image for clock-in: ${imageBuffer.length} bytes from ${browser}`);
         
-        // Validate image data
+        // Validate image data size
         if (imageBuffer.length < 100) {
-          console.warn('Image data too small, likely invalid');
-          return res.status(400).json({ error: 'The provided image appears to be invalid' });
+          console.warn(`Image data too small (${imageBuffer.length} bytes), likely invalid`);
+          return res.status(400).json({ 
+            error: 'The provided image appears to be invalid or too small. Please retake the photo.' 
+          });
         }
       } catch (imgErr) {
-        console.error(`Error processing clock-in image: ${imgErr.message}`);
+        console.error(`Error processing clock-in image from ${browser}: ${imgErr.message}`);
         return res.status(400).json({ error: `Image processing error: ${imgErr.message}` });
       }
     }
@@ -276,11 +327,17 @@ app.post('/api/clock-in', async (req, res) => {
     const result = await request.query(query);
     console.log(`Insert completed, new ID: ${result.recordset[0].id}`);
 
-    res.json({ 
+    // Send response with browser info for debugging
+    const response = { 
       id: result.recordset[0].id, 
       customer_name: validLocation.recordset[0].customer_name,
-      imageIncluded: !!(imageBuffer && imageBuffer.length > 0)
-    });
+      imageIncluded: !!(imageBuffer && imageBuffer.length > 0),
+      browser,
+      isMobile
+    };
+    
+    console.log(`Sending successful response to ${browser}:`, response);
+    res.json(response);
   } catch (err) {
     console.error(`Clock in error: ${err.message}`);
     console.error(err.stack);

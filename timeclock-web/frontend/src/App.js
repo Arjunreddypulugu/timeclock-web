@@ -14,6 +14,37 @@ import { verifyLocation, getUserStatus, registerUser, clockIn, clockOut } from '
 // Add this constant at the top, outside of the function to prevent access without proper link
 const ACCESS_RESTRICTED = true;
 
+// Helper for browser detection
+const detectBrowser = () => {
+  const userAgent = navigator.userAgent;
+  let browser = "Unknown";
+  
+  if (userAgent.match(/chrome|chromium|crios/i)) {
+    browser = "Chrome";
+  } else if (userAgent.match(/firefox|fxios/i)) {
+    browser = "Firefox";
+  } else if (userAgent.match(/safari/i) && !userAgent.match(/chrome|chromium|crios/i)) {
+    browser = "Safari";
+  } else if (userAgent.match(/opr\//i)) {
+    browser = "Opera";
+  } else if (userAgent.match(/edg/i)) {
+    browser = "Edge";
+  }
+  
+  const isMobile = /iPhone|iPad|iPod|Android/i.test(userAgent);
+  const isIOS = /iPad|iPhone|iPod/.test(userAgent) && !window.MSStream;
+  
+  return { browser, isMobile, isIOS, userAgent };
+};
+
+// Debug log helper
+const debugLog = (message, data) => {
+  if (process.env.NODE_ENV !== 'production') {
+    const { browser, isMobile } = detectBrowser();
+    console.log(`[${browser}${isMobile ? '-Mobile' : ''}] ${message}`, data || '');
+  }
+};
+
 function App() {
   const [cookieId, setCookieId] = useState('');
   const [isNewUser, setIsNewUser] = useState(true);
@@ -39,8 +70,13 @@ function App() {
   const [clockInImage, setClockInImage] = useState('');
   const [clockOutImage, setClockOutImage] = useState('');
   const [captureMode, setCaptureMode] = useState(''); // 'clockIn' or 'clockOut'
+  
+  // Browser detection
+  const browserInfo = detectBrowser();
 
   useEffect(() => {
+    debugLog('App initialized', browserInfo);
+    
     // Check for subcontractor parameter in URL
     const params = new URLSearchParams(window.location.search);
     const encodedSubcontractor = params.get('sc');
@@ -50,7 +86,7 @@ function App() {
         // Decode the base64 parameter
         const decodedSubcontractor = atob(encodedSubcontractor);
         setSubContractor(decodedSubcontractor);
-        console.log('Auto-filled subcontractor:', decodedSubcontractor);
+        debugLog('Auto-filled subcontractor:', decodedSubcontractor);
       } catch (err) {
         console.error('Error decoding subcontractor parameter:', err);
         if (ACCESS_RESTRICTED) {
@@ -149,6 +185,8 @@ function App() {
   };
 
   const handleCaptureImage = (imageData) => {
+    debugLog('Image captured', { mode: captureMode, size: imageData?.length || 0 });
+    
     if (captureMode === 'clockIn') {
       setClockInImage(imageData);
     } else if (captureMode === 'clockOut') {
@@ -170,6 +208,7 @@ function App() {
     setCaptureMode('clockIn');
     setShowCamera(true);
     setError('');
+    debugLog('Starting clock-in process');
   };
 
   const handleClockIn = async () => {
@@ -181,7 +220,7 @@ function App() {
     try {
       setLoading(true);
       setError(''); // Clear any existing errors
-      console.log('Starting clock-in process...');
+      debugLog('Proceeding with clock-in', { imageSize: clockInImage.length });
       
       // Validate image data before sending
       if (!clockInImage.includes('base64') && !clockInImage.startsWith('data:image/')) {
@@ -199,17 +238,22 @@ function App() {
         image: clockInImage
       };
       
-      console.log(`Sending clock-in data for ${clockInData.employee} at location ${location.lat},${location.lon}`);
+      // Special handling for Safari
+      if (browserInfo.browser === 'Safari' && browserInfo.isIOS) {
+        debugLog('Using Safari-specific clock-in process');
+      }
+      
+      debugLog(`Sending clock-in data for ${clockInData.employee} at location ${location.lat},${location.lon}`);
       
       try {
         const response = await clockIn(clockInData);
-        console.log('Clock-in response:', response);
+        debugLog('Clock-in response:', response);
         
         if (response.id) {
           setNotes('');
           setClockInImage('');
           setShowCamera(false);
-          console.log('Successfully clocked in with ID:', response.id);
+          debugLog('Successfully clocked in with ID:', response.id);
           checkUserStatus(cookieId);
         } else {
           setError('Clock in failed: ' + (response.error || 'Unknown error'));
@@ -221,8 +265,18 @@ function App() {
         // More user-friendly error messages
         if (errorMessage.includes('Failed to parse server response')) {
           errorMessage = 'The server returned an invalid response. Please try again.';
+          
+          // For Safari, provide more specific guidance
+          if (browserInfo.browser === 'Safari') {
+            errorMessage += ' This issue is more common on Safari. Try using Chrome if available.';
+          }
         } else if (errorMessage.includes('image')) {
           errorMessage = 'There was a problem with your photo. Please retake it.';
+          
+          // For Safari, add extra suggestions
+          if (browserInfo.browser === 'Safari') {
+            errorMessage += ' Make sure you are in a well-lit area and the camera has good focus.';
+          }
         } else if (errorMessage.includes('network')) {
           errorMessage = 'Network error. Please check your connection and try again.';
         }
@@ -241,6 +295,7 @@ function App() {
     setCaptureMode('clockOut');
     setShowCamera(true);
     setError('');
+    debugLog('Starting clock-out process');
   };
 
   const handleClockOut = async () => {
@@ -252,7 +307,7 @@ function App() {
     try {
       setLoading(true);
       setError(''); // Clear any existing errors
-      console.log('Starting clock-out process...');
+      debugLog('Proceeding with clock-out', { imageSize: clockOutImage.length });
       
       // Validate image data before sending
       if (!clockOutImage.includes('base64') && !clockOutImage.startsWith('data:image/')) {
@@ -265,17 +320,22 @@ function App() {
         image: clockOutImage
       };
       
-      console.log(`Sending clock-out data for cookie ${cookieId}`);
+      // Special handling for Safari
+      if (browserInfo.browser === 'Safari' && browserInfo.isIOS) {
+        debugLog('Using Safari-specific clock-out process');
+      }
+      
+      debugLog(`Sending clock-out data for cookie ${cookieId}`);
       
       try {
         const response = await clockOut(clockOutData);
-        console.log('Clock-out response:', response);
+        debugLog('Clock-out response:', response);
         
         if (response.success) {
           setNotes('');
           setClockOutImage('');
           setShowCamera(false);
-          console.log('Successfully clocked out');
+          debugLog('Successfully clocked out');
           checkUserStatus(cookieId);
         } else {
           setError('Clock out failed: ' + (response.error || 'Unknown error'));
@@ -287,8 +347,18 @@ function App() {
         // More user-friendly error messages
         if (errorMessage.includes('Failed to parse server response')) {
           errorMessage = 'The server returned an invalid response. Please try again.';
+          
+          // For Safari, provide more specific guidance
+          if (browserInfo.browser === 'Safari') {
+            errorMessage += ' This issue is more common on Safari. Try using Chrome if available.';
+          }
         } else if (errorMessage.includes('image')) {
           errorMessage = 'There was a problem with your photo. Please retake it.';
+          
+          // For Safari, add extra suggestions
+          if (browserInfo.browser === 'Safari') {
+            errorMessage += ' Make sure you are in a well-lit area and the camera has good focus.';
+          }
         } else if (errorMessage.includes('network')) {
           errorMessage = 'Network error. Please check your connection and try again.';
         }
@@ -311,6 +381,7 @@ function App() {
     } else if (captureMode === 'clockOut') {
       setClockOutImage('');
     }
+    debugLog('Camera capture cancelled');
   };
 
   // If access is restricted and no valid subcontractor parameter, show an error
@@ -332,7 +403,7 @@ function App() {
   return (
     <ThemeProvider theme={theme}>
       <GlobalStyles />
-      <Layout error={error} loading={false}>
+      <Layout error={error} loading={loading}>
         {showCamera ? (
           <div>
             <h2>{captureMode === 'clockIn' ? 'Take Clock-In Photo' : 'Take Clock-Out Photo'}</h2>
@@ -358,6 +429,15 @@ function App() {
                 {captureMode === 'clockIn' ? 'Complete Clock In' : 'Complete Clock Out'}
               </Button>
             </div>
+            
+            {/* Safari-specific guidance */}
+            {browserInfo.browser === 'Safari' && (
+              <div style={{ marginTop: '20px', padding: '10px', backgroundColor: '#f8f9fa', borderRadius: '5px' }}>
+                <p style={{ fontSize: '14px', textAlign: 'center' }}>
+                  <strong>Note for Safari users:</strong> If you encounter issues, try using Chrome for best results.
+                </p>
+              </div>
+            )}
           </div>
         ) : (
           <>
