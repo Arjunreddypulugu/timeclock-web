@@ -19,10 +19,12 @@ const getBrowser = () => {
   }
   
   const isMobile = /iPhone|iPad|iPod|Android/i.test(userAgent);
+  const isIOS = /iPad|iPhone|iPod/.test(userAgent) && !window.MSStream;
   
   return { 
     name: browserName, 
     isMobile, 
+    isIOS,
     userAgent
   };
 };
@@ -93,6 +95,43 @@ const safeParseJSON = async (response) => {
   }
 };
 
+// Helper function to safely stringify large objects
+const safeStringify = (obj) => {
+  try {
+    return JSON.stringify(obj);
+  } catch (e) {
+    console.error('Error stringifying object:', e);
+    return '{"error": "Unable to stringify object"}';
+  }
+};
+
+// Initialize browser info once
+const browserInfo = getBrowser();
+debugLog('Browser detected', browserInfo);
+
+// Validate required fields and return any missing ones
+const validateRequiredFields = (data, requiredFields) => {
+  const missing = {};
+  let hasMissing = false;
+  
+  for (const field of requiredFields) {
+    // Special check for image data which could be very large
+    if (field === 'image' && (!data.image || typeof data.image !== 'string' || !data.image.includes('base64'))) {
+      missing[field] = true;
+      hasMissing = true;
+      continue;
+    }
+    
+    // For other fields, just check if they exist and are not empty
+    if (!data[field] || (typeof data[field] === 'string' && data[field].trim() === '')) {
+      missing[field] = true;
+      hasMissing = true;
+    }
+  }
+  
+  return { hasMissing, missing };
+};
+
 export const verifyLocation = async (lat, lon) => {
   try {
     debugLog('Verifying location:', { lat, lon });
@@ -124,196 +163,397 @@ export const getUserStatus = async (cookie) => {
 };
 
 export const registerUser = async (userData) => {
+  // Ensure required fields are present
+  const requiredFields = ['subContractor', 'employee', 'number', 'cookie'];
+  const { hasMissing, missing } = validateRequiredFields(userData, requiredFields);
+  
+  if (hasMissing) {
+    debugLog('Missing required fields for registration:', missing);
+    throw new Error(`Missing required fields: ${Object.keys(missing).join(', ')}`);
+  }
+  
   try {
-    debugLog('Registering user:', userData);
+    // Make sure all fields are trimmed strings
+    const sanitizedData = {
+      subContractor: String(userData.subContractor || '').trim(),
+      employee: String(userData.employee || '').trim(),
+      number: String(userData.number || '').trim(),
+      cookie: String(userData.cookie || '').trim()
+    };
+    
+    // Save to localStorage as a backup
+    try {
+      localStorage.setItem('userDetails', JSON.stringify({
+        SubContractor: sanitizedData.subContractor,
+        Employee: sanitizedData.employee,
+        Number: sanitizedData.number
+      }));
+      
+      localStorage.setItem('emergencyUserData', JSON.stringify({
+        subContractor: sanitizedData.subContractor,
+        employee: sanitizedData.employee,
+        number: sanitizedData.number
+      }));
+    } catch (e) {
+      console.error('Error saving user details to localStorage:', e);
+    }
     
     const response = await fetch(`${API_URL}/register`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(userData),
+      body: JSON.stringify(sanitizedData),
     });
-    return await safeParseJSON(response);
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      debugLog('Registration error:', errorText);
+      throw new Error(errorText || `HTTP error! status: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    return data;
   } catch (error) {
-    console.error('Registration error:', error);
-    throw error;
+    debugLog('Registration failed:', error);
+    throw new Error(`Registration failed: ${error.message}`);
   }
 };
 
 export const clockIn = async (clockInData) => {
-  try {
-    const browser = getBrowser();
-    debugLog('API clockIn called with data:', {...clockInData, image: '(image data omitted)'});
-    debugLog('Browser info:', browser);
+  debugLog('Clock-in request received', { dataKeys: Object.keys(clockInData) });
+  
+  // Filter out undefined or null values
+  const filteredData = Object.fromEntries(
+    Object.entries(clockInData).filter(([_, v]) => v !== undefined && v !== null)
+  );
+  
+  // Required fields for clock in
+  const requiredFields = ['subContractor', 'employee', 'number', 'lat', 'lon', 'cookie'];
+  
+  // Log any missing fields
+  const missingFieldNames = requiredFields.filter(field => 
+    !filteredData[field] || 
+    (typeof filteredData[field] === 'string' && filteredData[field].trim() === '')
+  );
+  
+  if (missingFieldNames.length > 0) {
+    debugLog('Missing required clock-in fields:', missingFieldNames);
     
-    // Special handling for Safari
-    let sanitizedData;
-    try {
-      // Filter out any undefined or null values that could cause issues
-      const filteredData = Object.fromEntries(
-        Object.entries(clockInData)
-          .filter(([_, value]) => value !== undefined && value !== null)
-      );
+    // Try to recover missing fields from localStorage
+    let recovered = false;
+    
+    if ((missingFieldNames.includes('subContractor') || 
+         missingFieldNames.includes('employee') || 
+         missingFieldNames.includes('number'))) {
       
-      // Move non-standard fields to browser info for debugging
-      const { browserInfo, isMobile, ...standardData } = filteredData;
+      try {
+        // Try emergency data first
+        const emergencyData = localStorage.getItem('emergencyUserData');
+        if (emergencyData) {
+          const parsed = JSON.parse(emergencyData);
+          if (parsed.subContractor) filteredData.subContractor = parsed.subContractor;
+          if (parsed.employee) filteredData.employee = parsed.employee; 
+          if (parsed.number) filteredData.number = parsed.number;
+          debugLog('Recovered missing fields from emergencyUserData', parsed);
+          recovered = true;
+        }
+        
+        // If still missing, try userDetails
+        if (!recovered) {
+          const userDetails = localStorage.getItem('userDetails');
+          if (userDetails) {
+            const parsed = JSON.parse(userDetails);
+            if (parsed.SubContractor) filteredData.subContractor = parsed.SubContractor;
+            if (parsed.Employee) filteredData.employee = parsed.Employee;
+            if (parsed.Number) filteredData.number = parsed.Number;
+            debugLog('Recovered missing fields from userDetails', parsed);
+            recovered = true;
+          }
+        }
+      } catch (e) {
+        console.error('Error recovering data from localStorage:', e);
+      }
+    }
+    
+    // If we couldn't recover fields, throw detailed error
+    const stillMissingFields = requiredFields.filter(field => 
+      !filteredData[field] || 
+      (typeof filteredData[field] === 'string' && filteredData[field].trim() === '')
+    );
+    
+    if (stillMissingFields.length > 0) {
+      debugLog('Still missing fields after recovery attempt:', stillMissingFields);
       
-      // Ensure image is properly formatted for all browsers
-      sanitizedData = {
-        ...standardData,
-        image: sanitizeImageData(filteredData.image)
-      };
+      const error = new Error(`Missing required fields: ${stillMissingFields.join(', ')}`);
+      error.missing = stillMissingFields.reduce((acc, field) => {
+        acc[field] = true;
+        return acc;
+      }, {});
+      throw error;
+    }
+  }
+  
+  // Verify image data if provided
+  if (filteredData.image && typeof filteredData.image === 'string') {
+    if (!filteredData.image.includes('base64') && !filteredData.image.startsWith('data:image/')) {
+      throw new Error('Invalid image format');
+    }
+  }
+  
+  // Prepare data for sending - make sure all string fields are actually strings
+  const sanitizedData = {
+    subContractor: String(filteredData.subContractor || '').trim(),
+    employee: String(filteredData.employee || '').trim(),
+    number: String(filteredData.number || '').trim(),
+    lat: filteredData.lat,
+    lon: filteredData.lon,
+    cookie: String(filteredData.cookie || '').trim(),
+    notes: String(filteredData.notes || '').trim(),
+    image: filteredData.image || '',
+    browserInfo: filteredData.browserInfo || browserInfo.name,
+    isMobile: filteredData.isMobile !== undefined ? filteredData.isMobile : browserInfo.isMobile,
+    isIOS: browserInfo.isIOS
+  };
+  
+  // Move any non-standard fields into browserInfo for debugging
+  const standardFields = ['subContractor', 'employee', 'number', 'lat', 'lon', 'cookie', 'notes', 'image', 'browserInfo', 'isMobile', 'isIOS'];
+  
+  const extraFields = Object.keys(filteredData).filter(key => !standardFields.includes(key));
+  if (extraFields.length > 0) {
+    sanitizedData.extraData = {};
+    extraFields.forEach(field => {
+      sanitizedData.extraData[field] = filteredData[field];
+    });
+    debugLog('Moving non-standard fields to extraData:', extraFields);
+  }
+  
+  try {
+    debugLog('Sending clock-in data', { sanitizedDataKeys: Object.keys(sanitizedData) });
+    
+    // Special handling for Safari/iOS
+    if (browserInfo.name === 'Safari' || browserInfo.isIOS) {
+      debugLog('Using Safari-specific API approach');
       
-      // Make sure all required fields are present and valid
-      const requiredFields = ['subContractor', 'employee', 'number', 'lat', 'lon', 'cookie'];
-      const missingFields = requiredFields.filter(field => 
-        !sanitizedData[field] || 
-        sanitizedData[field] === 'undefined' || 
-        sanitizedData[field] === 'null'
-      );
+      // For Safari/iOS, we'll use a different approach that doesn't involve
+      // sending the entire image data as JSON, which can be problematic
       
-      if (missingFields.length > 0) {
-        debugLog('Missing required fields detected:', missingFields);
-        throw new Error(`Missing required fields: ${missingFields.join(', ')}`);
+      // First try to get blob from image data
+      let imageBlob = null;
+      try {
+        if (sanitizedData.image && sanitizedData.image.startsWith('data:')) {
+          const base64Response = await fetch(sanitizedData.image);
+          imageBlob = await base64Response.blob();
+          debugLog('Successfully converted image to blob', { size: imageBlob.size });
+        }
+      } catch (imageError) {
+        console.error('Failed to convert image to blob:', imageError);
       }
       
-      debugLog('Sanitized data:', {...sanitizedData, image: '(sanitized image data omitted)'});
-    } catch (sanitizeError) {
-      console.error('Error sanitizing data:', sanitizeError);
-      throw new Error(`Image processing error: ${sanitizeError.message}`);
-    }
-    
-    // Validate the JSON stringification before sending
-    let requestBody;
-    try {
-      requestBody = JSON.stringify(sanitizedData);
-      debugLog('Stringified request length:', requestBody.length);
-    } catch (jsonError) {
-      console.error('Error stringifying clock-in data:', jsonError);
-      throw new Error('Failed to prepare clock-in data: ' + jsonError.message);
-    }
-    
-    // For Safari and iOS, use a different fetch approach
-    let response;
-    if (browser.name === 'Safari') {
-      debugLog('Using Safari-specific fetch approach');
+      // Create a FormData object for multipart/form-data
+      const formData = new FormData();
       
-      // Create a blob if there's an issue with long strings in Safari
-      response = await fetch(`${API_URL}/clock-in`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          'X-Browser': browser.name,
-          'X-Mobile': browser.isMobile ? 'true' : 'false'
-        },
-        body: requestBody,
-        mode: 'cors',
-        credentials: 'same-origin'
+      // Add all the fields except image
+      Object.keys(sanitizedData).forEach(key => {
+        if (key !== 'image') {
+          formData.append(key, sanitizedData[key]);
+        }
       });
+      
+      // Add the image as a blob if we have it
+      if (imageBlob) {
+        formData.append('image', imageBlob, 'photo.jpg');
+        debugLog('Added image blob to form data');
+      } else if (sanitizedData.image) {
+        // If no blob but we have image string data, add it as a field
+        formData.append('imageData', sanitizedData.image);
+        debugLog('Added image data string to form data');
+      }
+      
+      // Send the form data
+      const response = await fetch(`${API_URL}/clock-in-multipart`, {
+        method: 'POST',
+        body: formData,
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        debugLog('Clock-in error (multipart):', errorText);
+        throw new Error(errorText || `HTTP error! status: ${response.status}`);
+      }
+      
+      try {
+        const data = await response.json();
+        return data;
+      } catch (jsonError) {
+        debugLog('Failed to parse server response (multipart):', jsonError);
+        throw new Error('Failed to parse server response: ' + jsonError.message);
+      }
     } else {
       // Standard approach for other browsers
-      response = await fetch(`${API_URL}/clock-in`, {
+      const response = await fetch(`${API_URL}/clock-in`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-Browser': browser.name,
-          'X-Mobile': browser.isMobile ? 'true' : 'false'
         },
-        body: requestBody,
+        body: safeStringify(sanitizedData),
       });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        debugLog('Clock-in error:', errorText);
+        throw new Error(errorText || `HTTP error! status: ${response.status}`);
+      }
+      
+      try {
+        const data = await response.json();
+        return data;
+      } catch (jsonError) {
+        debugLog('Failed to parse server response:', jsonError);
+        throw new Error('Failed to parse server response: ' + jsonError.message);
+      }
     }
-    
-    debugLog('Fetch response received:', { status: response.status, ok: response.ok });
-    
-    const data = await safeParseJSON(response);
-    debugLog('API clockIn response:', data);
-    
-    if (!response.ok) {
-      throw new Error(data.error || `Server error: ${response.status}`);
-    }
-    
-    return data;
   } catch (error) {
-    console.error('Clock in API error:', error);
+    debugLog('Clock-in failed:', error);
+    
+    // If this is a network error, be more specific
+    if (error.message.includes('NetworkError') || error.message.includes('Failed to fetch')) {
+      throw new Error('Network error. Please check your internet connection and try again.');
+    }
+    
     throw error;
   }
 };
 
 export const clockOut = async (clockOutData) => {
+  debugLog('Clock-out request received', { dataKeys: Object.keys(clockOutData) });
+  
+  // Filter out undefined or null values
+  const filteredData = Object.fromEntries(
+    Object.entries(clockOutData).filter(([_, v]) => v !== undefined && v !== null)
+  );
+  
+  // Required fields for clock out
+  const requiredFields = ['cookie'];
+  
+  // Log any missing fields
+  const missingFieldNames = requiredFields.filter(field => 
+    !filteredData[field] || 
+    (typeof filteredData[field] === 'string' && filteredData[field].trim() === '')
+  );
+  
+  if (missingFieldNames.length > 0) {
+    debugLog('Missing required clock-out fields:', missingFieldNames);
+    throw new Error(`Missing required fields: ${missingFieldNames.join(', ')}`);
+  }
+  
+  // Verify image data if provided
+  if (filteredData.image && typeof filteredData.image === 'string') {
+    if (!filteredData.image.includes('base64') && !filteredData.image.startsWith('data:image/')) {
+      throw new Error('Invalid image format');
+    }
+  }
+  
+  // Prepare data for sending
+  const sanitizedData = {
+    cookie: String(filteredData.cookie || '').trim(),
+    notes: String(filteredData.notes || '').trim(),
+    image: filteredData.image || '',
+    browserInfo: browserInfo.name,
+    isMobile: browserInfo.isMobile,
+    isIOS: browserInfo.isIOS
+  };
+  
   try {
-    const browser = getBrowser();
-    debugLog('API clockOut called with data:', {...clockOutData, image: '(image data omitted)'});
-    debugLog('Browser info:', browser);
+    debugLog('Sending clock-out data', { sanitizedDataKeys: Object.keys(sanitizedData) });
     
-    // Special handling for Safari
-    let sanitizedData;
-    try {
-      // Ensure image is properly formatted for all browsers
-      sanitizedData = {
-        ...clockOutData,
-        image: sanitizeImageData(clockOutData.image)
-      };
+    // Special handling for Safari/iOS
+    if (browserInfo.name === 'Safari' || browserInfo.isIOS) {
+      debugLog('Using Safari-specific API approach for clock-out');
       
-      debugLog('Sanitized data:', {...sanitizedData, image: '(sanitized image data omitted)'});
-    } catch (sanitizeError) {
-      console.error('Error sanitizing data:', sanitizeError);
-      throw new Error(`Image processing error: ${sanitizeError.message}`);
-    }
-    
-    // Validate the JSON stringification before sending
-    let requestBody;
-    try {
-      requestBody = JSON.stringify(sanitizedData);
-      debugLog('Stringified request length:', requestBody.length);
-    } catch (jsonError) {
-      console.error('Error stringifying clock-out data:', jsonError);
-      throw new Error('Failed to prepare clock-out data: ' + jsonError.message);
-    }
-    
-    // For Safari and iOS, use a different fetch approach
-    let response;
-    if (browser.name === 'Safari') {
-      debugLog('Using Safari-specific fetch approach');
+      // First try to get blob from image data
+      let imageBlob = null;
+      try {
+        if (sanitizedData.image && sanitizedData.image.startsWith('data:')) {
+          const base64Response = await fetch(sanitizedData.image);
+          imageBlob = await base64Response.blob();
+          debugLog('Successfully converted image to blob', { size: imageBlob.size });
+        }
+      } catch (imageError) {
+        console.error('Failed to convert image to blob:', imageError);
+      }
       
-      response = await fetch(`${API_URL}/clock-out`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          'X-Browser': browser.name,
-          'X-Mobile': browser.isMobile ? 'true' : 'false'
-        },
-        body: requestBody,
-        mode: 'cors',
-        credentials: 'same-origin'
+      // Create a FormData object for multipart/form-data
+      const formData = new FormData();
+      
+      // Add all the fields except image
+      Object.keys(sanitizedData).forEach(key => {
+        if (key !== 'image') {
+          formData.append(key, sanitizedData[key]);
+        }
       });
+      
+      // Add the image as a blob if we have it
+      if (imageBlob) {
+        formData.append('image', imageBlob, 'photo.jpg');
+        debugLog('Added image blob to form data');
+      } else if (sanitizedData.image) {
+        // If no blob but we have image string data, add it as a field
+        formData.append('imageData', sanitizedData.image);
+        debugLog('Added image data string to form data');
+      }
+      
+      // Send the form data
+      const response = await fetch(`${API_URL}/clock-out-multipart`, {
+        method: 'POST',
+        body: formData,
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        debugLog('Clock-out error (multipart):', errorText);
+        throw new Error(errorText || `HTTP error! status: ${response.status}`);
+      }
+      
+      try {
+        const data = await response.json();
+        return data;
+      } catch (jsonError) {
+        debugLog('Failed to parse server response (multipart):', jsonError);
+        throw new Error('Failed to parse server response: ' + jsonError.message);
+      }
     } else {
       // Standard approach for other browsers
-      response = await fetch(`${API_URL}/clock-out`, {
+      const response = await fetch(`${API_URL}/clock-out`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-Browser': browser.name,
-          'X-Mobile': browser.isMobile ? 'true' : 'false'
         },
-        body: requestBody,
+        body: safeStringify(sanitizedData),
       });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        debugLog('Clock-out error:', errorText);
+        throw new Error(errorText || `HTTP error! status: ${response.status}`);
+      }
+      
+      try {
+        const data = await response.json();
+        return data;
+      } catch (jsonError) {
+        debugLog('Failed to parse server response:', jsonError);
+        throw new Error('Failed to parse server response: ' + jsonError.message);
+      }
     }
-    
-    debugLog('Fetch response received:', { status: response.status, ok: response.ok });
-    
-    const data = await safeParseJSON(response);
-    debugLog('API clockOut response:', data);
-    
-    if (!response.ok) {
-      throw new Error(data.error || `Server error: ${response.status}`);
-    }
-    
-    return data;
   } catch (error) {
-    console.error('Clock out API error:', error);
+    debugLog('Clock-out failed:', error);
+    
+    // If this is a network error, be more specific
+    if (error.message.includes('NetworkError') || error.message.includes('Failed to fetch')) {
+      throw new Error('Network error. Please check your internet connection and try again.');
+    }
+    
     throw error;
   }
 };

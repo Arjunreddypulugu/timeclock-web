@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TimeClock Debug</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+      max-width: 800px;
+      margin: 0 auto;
+    }
+    h1 {
+      color: #0078d7;
+    }
+    pre {
+      background-color: #f5f5f5;
+      padding: 10px;
+      border-radius: 5px;
+      overflow-x: auto;
+      white-space: pre-wrap;
+    }
+    button {
+      background-color: #0078d7;
+      color: white;
+      border: none;
+      padding: 10px 15px;
+      border-radius: 5px;
+      cursor: pointer;
+      margin: 10px 0;
+    }
+    .error {
+      color: red;
+    }
+    .section {
+      margin-bottom: 20px;
+      padding: 15px;
+      border: 1px solid #ddd;
+      border-radius: 5px;
+    }
+  </style>
+</head>
+<body>
+  <h1>TimeClock Debug Tool</h1>
+  
+  <div class="section">
+    <h2>Browser Information</h2>
+    <pre id="browser-info"></pre>
+  </div>
+
+  <div class="section">
+    <h2>Local Storage</h2>
+    <pre id="local-storage"></pre>
+    <button id="clear-storage">Clear Local Storage</button>
+  </div>
+
+  <div class="section">
+    <h2>Cookie Information</h2>
+    <pre id="cookie-info"></pre>
+  </div>
+
+  <div class="section">
+    <h2>Manual Data Entry</h2>
+    <p>Use this to manually set user details if they're missing:</p>
+    <form id="manual-form">
+      <div>
+        <label for="subcontractor">Subcontractor:</label>
+        <input type="text" id="subcontractor" style="width: 100%; margin: 5px 0; padding: 5px;">
+      </div>
+      <div>
+        <label for="employee">Employee:</label>
+        <input type="text" id="employee" style="width: 100%; margin: 5px 0; padding: 5px;">
+      </div>
+      <div>
+        <label for="number">Phone Number:</label>
+        <input type="text" id="number" style="width: 100%; margin: 5px 0; padding: 5px;">
+      </div>
+      <button type="submit">Save User Data</button>
+    </form>
+  </div>
+
+  <div class="section">
+    <h2>API Test</h2>
+    <button id="test-api">Test API Connection</button>
+    <pre id="api-result"></pre>
+  </div>
+
+  <script>
+    // Detect browser
+    function detectBrowser() {
+      const userAgent = navigator.userAgent;
+      let browser = "Unknown";
+      
+      if (userAgent.match(/chrome|chromium|crios/i)) {
+        browser = "Chrome";
+      } else if (userAgent.match(/firefox|fxios/i)) {
+        browser = "Firefox";
+      } else if (userAgent.match(/safari/i) && !userAgent.match(/chrome|chromium|crios/i)) {
+        browser = "Safari";
+      } else if (userAgent.match(/opr\//i)) {
+        browser = "Opera";
+      } else if (userAgent.match(/edg/i)) {
+        browser = "Edge";
+      }
+      
+      const isMobile = /iPhone|iPad|iPod|Android/i.test(userAgent);
+      const isIOS = /iPad|iPhone|iPod/.test(userAgent) && !window.MSStream;
+      
+      return { browser, isMobile, isIOS, userAgent };
+    }
+
+    // Display browser info
+    function showBrowserInfo() {
+      const browserInfo = detectBrowser();
+      document.getElementById('browser-info').textContent = JSON.stringify(browserInfo, null, 2);
+    }
+
+    // Display local storage
+    function showLocalStorage() {
+      const storage = {};
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        try {
+          const value = localStorage.getItem(key);
+          storage[key] = value;
+        } catch (e) {
+          storage[key] = `Error reading: ${e.message}`;
+        }
+      }
+      document.getElementById('local-storage').textContent = JSON.stringify(storage, null, 2);
+    }
+
+    // Display cookie info
+    function showCookieInfo() {
+      document.getElementById('cookie-info').textContent = document.cookie || 'No cookies found';
+    }
+
+    // Clear local storage
+    document.getElementById('clear-storage').addEventListener('click', () => {
+      localStorage.clear();
+      showLocalStorage();
+      alert('Local storage cleared');
+    });
+
+    // Save manual data
+    document.getElementById('manual-form').addEventListener('submit', (e) => {
+      e.preventDefault();
+      
+      const userDetails = {
+        SubContractor: document.getElementById('subcontractor').value,
+        Employee: document.getElementById('employee').value,
+        Number: document.getElementById('number').value
+      };
+      
+      localStorage.setItem('userDetails', JSON.stringify(userDetails));
+      localStorage.setItem('manuallySetUserDetails', 'true');
+      
+      showLocalStorage();
+      alert('User details saved to localStorage');
+    });
+
+    // Test API connection
+    document.getElementById('test-api').addEventListener('click', async () => {
+      const apiResult = document.getElementById('api-result');
+      apiResult.textContent = 'Testing API connection...';
+      
+      try {
+        const API_URL = 'https://timeclock-backend-wxqi.onrender.com/api' || 'http://localhost:5000/api';
+        const response = await fetch(`${API_URL}/user-status?cookie=debug-${Date.now()}`);
+        const data = await response.json();
+        
+        apiResult.textContent = JSON.stringify(data, null, 2);
+      } catch (error) {
+        apiResult.innerHTML = `<span class="error">Error: ${error.message}</span>`;
+      }
+    });
+
+    // Initialize
+    showBrowserInfo();
+    showLocalStorage();
+    showCookieInfo();
+
+    // Set form values if available
+    try {
+      const userDetails = JSON.parse(localStorage.getItem('userDetails'));
+      if (userDetails) {
+        document.getElementById('subcontractor').value = userDetails.SubContractor || '';
+        document.getElementById('employee').value = userDetails.Employee || '';
+        document.getElementById('number').value = userDetails.Number || '';
+      }
+    } catch (e) {
+      console.error('Error loading user details:', e);
+    }
+  </script>
+</body>
+</html> 

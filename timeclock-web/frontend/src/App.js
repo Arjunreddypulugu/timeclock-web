@@ -1,5 +1,5 @@
 // Version 1.0.1 - Fix iOS image handling issues
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { ThemeProvider } from 'styled-components';
 import theme from './theme';
 import GlobalStyles from './GlobalStyles';
@@ -10,9 +10,36 @@ import TimeClockCard from './components/TimeClockCard';
 import Camera from './components/Camera';
 import Button from './components/Button';
 import { verifyLocation, getUserStatus, registerUser, clockIn, clockOut } from './services/api';
+import styled from 'styled-components';
 
 // Add this constant at the top, outside of the function to prevent access without proper link
 const ACCESS_RESTRICTED = true;
+
+// iOS Emergency Form styling
+const EmergencyForm = styled.div`
+  padding: 15px;
+  margin: 15px 0;
+  border: 2px solid #f44336;
+  border-radius: 5px;
+  background-color: rgba(244, 67, 54, 0.1);
+`;
+
+const FormField = styled.div`
+  margin-bottom: 10px;
+`;
+
+const Label = styled.label`
+  display: block;
+  margin-bottom: 5px;
+  font-weight: bold;
+`;
+
+const Input = styled.input`
+  width: 100%;
+  padding: 8px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+`;
 
 // Helper for browser detection
 const detectBrowser = () => {
@@ -71,11 +98,36 @@ function App() {
   const [clockOutImage, setClockOutImage] = useState('');
   const [captureMode, setCaptureMode] = useState(''); // 'clockIn' or 'clockOut'
   
+  // iOS-specific emergency form state
+  const [showEmergencyForm, setShowEmergencyForm] = useState(false);
+  const [emergencySubContractor, setEmergencySubContractor] = useState('');
+  const [emergencyEmployee, setEmergencyEmployee] = useState('');
+  const [emergencyNumber, setEmergencyNumber] = useState('');
+  
   // Browser detection
   const browserInfo = detectBrowser();
+  
+  // Save original handleClockIn reference for emergency form
+  const originalHandleClockInRef = useRef(null);
 
   useEffect(() => {
     debugLog('App initialized', browserInfo);
+    
+    // Load any emergency data from localStorage
+    if (browserInfo.isIOS) {
+      try {
+        const savedEmergencyData = localStorage.getItem('emergencyUserData');
+        if (savedEmergencyData) {
+          const data = JSON.parse(savedEmergencyData);
+          setEmergencySubContractor(data.subContractor || '');
+          setEmergencyEmployee(data.employee || '');
+          setEmergencyNumber(data.number || '');
+          debugLog('Loaded emergency data from localStorage', data);
+        }
+      } catch (err) {
+        console.error('Error loading emergency data:', err);
+      }
+    }
     
     // Check for subcontractor parameter in URL
     const params = new URLSearchParams(window.location.search);
@@ -86,6 +138,7 @@ function App() {
         // Decode the base64 parameter
         const decodedSubcontractor = atob(encodedSubcontractor);
         setSubContractor(decodedSubcontractor);
+        setEmergencySubContractor(decodedSubcontractor);
         debugLog('Auto-filled subcontractor:', decodedSubcontractor);
       } catch (err) {
         console.error('Error decoding subcontractor parameter:', err);
@@ -122,6 +175,13 @@ function App() {
       setHasOpenSession(response.hasOpenSession);
       setOpenSession(response.openSession);
       setUserDetails(response.userDetails);
+      
+      // Update emergency form data if we have user details
+      if (response.userDetails) {
+        setEmergencySubContractor(response.userDetails.SubContractor || '');
+        setEmergencyEmployee(response.userDetails.Employee || '');
+        setEmergencyNumber(response.userDetails.Number || '');
+      }
     } catch (err) {
       setError('Error checking user status: ' + err.message);
     } finally {
@@ -176,6 +236,18 @@ function App() {
         number: phoneNumber,
         cookie: cookieId
       });
+      
+      // Save these details for emergency use
+      const emergencyData = {
+        subContractor,
+        employee: employeeName,
+        number: phoneNumber
+      };
+      localStorage.setItem('emergencyUserData', JSON.stringify(emergencyData));
+      setEmergencySubContractor(subContractor);
+      setEmergencyEmployee(employeeName);
+      setEmergencyNumber(phoneNumber);
+      
       checkUserStatus(cookieId);
     } catch (err) {
       setError('Registration failed: ' + (err.message || 'Unknown error'));
@@ -212,6 +284,11 @@ function App() {
   };
 
   const handleClockIn = async () => {
+    // Store original function for emergency form
+    if (!originalHandleClockInRef.current) {
+      originalHandleClockInRef.current = handleClockIn;
+    }
+    
     if (!clockInImage) {
       setError('Please take a photo first');
       return;
@@ -228,41 +305,50 @@ function App() {
       }
       
       // iOS Safari special handling - ensure fields are properly sent
-      let userInfo = userDetails;
+      let tempUserInfo = userDetails;
       
       // For iOS Safari, double-check we have user details
       if (browserInfo.browser === 'Safari' && browserInfo.isIOS) {
         debugLog('iOS Safari detected, ensuring user details are available');
         
-        // If we don't have user details but we're not a new user,
-        // try to retrieve them from localStorage or other state
-        if (!userInfo && !isNewUser) {
+        // Try emergency data first
+        const emergencyData = {
+          SubContractor: emergencySubContractor,
+          Employee: emergencyEmployee,
+          Number: emergencyNumber
+        };
+        
+        if (emergencyData.Employee && emergencyData.SubContractor && emergencyData.Number) {
+          tempUserInfo = emergencyData;
+          debugLog('Using emergency data for iOS', emergencyData);
+        }
+        // If we still don't have user details, show emergency form
+        else if (!tempUserInfo && !isNewUser) {
           const storedUser = localStorage.getItem('userDetails');
           if (storedUser) {
             try {
-              userInfo = JSON.parse(storedUser);
-              debugLog('Retrieved user details from localStorage', userInfo);
+              tempUserInfo = JSON.parse(storedUser);
+              debugLog('Retrieved user details from localStorage', tempUserInfo);
             } catch (e) {
               console.error('Error parsing stored user details:', e);
             }
           }
+          
+          // If we STILL don't have details, show emergency form
+          if (!tempUserInfo || !tempUserInfo.Employee || !tempUserInfo.SubContractor || !tempUserInfo.Number) {
+            debugLog('No user details available, showing emergency form');
+            setShowEmergencyForm(true);
+            setLoading(false);
+            return; // Exit early, will continue after emergency form
+          }
         }
-        
-        // Log what details we'll be using
-        debugLog('User details that will be used:', {
-          fromState: userDetails ? 'Yes' : 'No',
-          fromStorage: userInfo && !userDetails ? 'Yes' : 'No',
-          subContractor: userDetails?.SubContractor || subContractor,
-          employee: userDetails?.Employee || employeeName,
-          number: userDetails?.Number || phoneNumber
-        });
       }
       
-      // Ensure all fields are explicitly defined, especially for iOS Safari
+      // Ensure all fields are explicitly defined with STRICT validation for iOS
       const clockInData = {
-        subContractor: (userInfo?.SubContractor || subContractor || '').trim(),
-        employee: (userInfo?.Employee || employeeName || '').trim(),
-        number: (userInfo?.Number || phoneNumber || '').trim(),
+        subContractor: ((tempUserInfo?.SubContractor || subContractor || emergencySubContractor || '') + '').trim(),
+        employee: ((tempUserInfo?.Employee || employeeName || emergencyEmployee || '') + '').trim(),
+        number: ((tempUserInfo?.Number || phoneNumber || emergencyNumber || '') + '').trim(),
         lat: location.lat,
         lon: location.lon,
         cookie: cookieId,
@@ -272,6 +358,21 @@ function App() {
         browserInfo: browserInfo.browser,
         isMobile: browserInfo.isMobile
       };
+      
+      // Super strict validation for iOS
+      if (browserInfo.isIOS) {
+        // Force these fields to be strings
+        clockInData.subContractor = String(clockInData.subContractor || '');
+        clockInData.employee = String(clockInData.employee || '');
+        clockInData.number = String(clockInData.number || '');
+        
+        // Save emergency data
+        localStorage.setItem('emergencyUserData', JSON.stringify({
+          subContractor: clockInData.subContractor,
+          employee: clockInData.employee,
+          number: clockInData.number
+        }));
+      }
       
       // Verify required fields
       const missingFields = [];
@@ -284,6 +385,15 @@ function App() {
       
       if (missingFields.length > 0) {
         debugLog('Missing required fields', missingFields);
+        
+        // For iOS, show emergency form instead of error
+        if (browserInfo.isIOS) {
+          setShowEmergencyForm(true);
+          setError(errorMessage + '. Please fill in the form below.');
+          setLoading(false);
+          return;
+        }
+        
         throw new Error(`Missing required fields: ${missingFields.join(', ')}`);
       }
       
@@ -311,6 +421,7 @@ function App() {
           setNotes('');
           setClockInImage('');
           setShowCamera(false);
+          setShowEmergencyForm(false);
           debugLog('Successfully clocked in with ID:', response.id);
           checkUserStatus(cookieId);
         } else {
@@ -327,7 +438,15 @@ function App() {
               .filter(([_, isMissing]) => isMissing)
               .map(([field]) => field);
             
-            errorMessage = `Missing required fields: ${missing.join(', ')}. Please try again.`;
+            errorMessage = `Missing required fields: ${missing.join(', ')}`;
+            
+            // On iOS, show emergency form
+            if (browserInfo.isIOS) {
+              setShowEmergencyForm(true);
+              setError(errorMessage + '. Please fill in the form below.');
+              setLoading(false);
+              return;
+            }
           }
         }
         
@@ -358,6 +477,42 @@ function App() {
     } finally {
       setLoading(false);
     }
+  };
+  
+  // Handle emergency form submission
+  const handleEmergencySubmit = (e) => {
+    e.preventDefault();
+    
+    // Save the emergency data
+    setEmergencySubContractor(emergencySubContractor.trim());
+    setEmergencyEmployee(emergencyEmployee.trim());
+    setEmergencyNumber(emergencyNumber.trim());
+    
+    // Save to localStorage
+    const emergencyData = {
+      subContractor: emergencySubContractor.trim(),
+      employee: emergencyEmployee.trim(),
+      number: emergencyNumber.trim()
+    };
+    localStorage.setItem('emergencyUserData', JSON.stringify(emergencyData));
+    
+    // Also save as userDetails to be safe
+    localStorage.setItem('userDetails', JSON.stringify({
+      SubContractor: emergencySubContractor.trim(),
+      Employee: emergencyEmployee.trim(),
+      Number: emergencyNumber.trim()
+    }));
+    
+    // Continue with the clock in process
+    debugLog('Continuing with clock in after emergency form', emergencyData);
+    setShowEmergencyForm(false);
+    
+    // Use a timeout to ensure state updates before continuing
+    setTimeout(() => {
+      if (originalHandleClockInRef.current) {
+        originalHandleClockInRef.current();
+      }
+    }, 300);
   };
 
   const startClockOut = () => {
@@ -464,6 +619,68 @@ function App() {
             <p>{error}</p>
             <p>Please contact your supervisor for the correct link.</p>
           </div>
+        </Layout>
+      </ThemeProvider>
+    );
+  }
+
+  // Emergency form for iOS when user details are missing
+  if (showEmergencyForm) {
+    return (
+      <ThemeProvider theme={theme}>
+        <GlobalStyles />
+        <Layout error={error} loading={loading}>
+          <EmergencyForm>
+            <h2>User Information Required</h2>
+            <p>Please enter your details to continue:</p>
+            
+            <form onSubmit={handleEmergencySubmit}>
+              <FormField>
+                <Label htmlFor="emergency-subcontractor">Subcontractor:</Label>
+                <Input 
+                  id="emergency-subcontractor"
+                  type="text"
+                  value={emergencySubContractor}
+                  onChange={(e) => setEmergencySubContractor(e.target.value)}
+                  required
+                />
+              </FormField>
+              
+              <FormField>
+                <Label htmlFor="emergency-employee">Employee Name:</Label>
+                <Input 
+                  id="emergency-employee"
+                  type="text"
+                  value={emergencyEmployee}
+                  onChange={(e) => setEmergencyEmployee(e.target.value)}
+                  required
+                />
+              </FormField>
+              
+              <FormField>
+                <Label htmlFor="emergency-number">Phone Number:</Label>
+                <Input 
+                  id="emergency-number"
+                  type="text"
+                  value={emergencyNumber}
+                  onChange={(e) => setEmergencyNumber(e.target.value)}
+                  required
+                />
+              </FormField>
+              
+              <Button variant="primary" type="submit">
+                Continue
+              </Button>
+              
+              <Button 
+                variant="secondary" 
+                style={{ marginLeft: '10px' }}
+                onClick={() => setShowEmergencyForm(false)}
+              >
+                Cancel
+              </Button>
+            </form>
+          </EmergencyForm>
         </Layout>
       </ThemeProvider>
     );
