@@ -389,6 +389,7 @@ function App() {
         // For iOS, show emergency form instead of error
         if (browserInfo.isIOS) {
           setShowEmergencyForm(true);
+          const errorMessage = `Missing required fields: ${missingFields.join(', ')}`;
           setError(errorMessage + '. Please fill in the form below.');
           setLoading(false);
           return;
