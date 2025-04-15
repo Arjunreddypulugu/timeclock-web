@@ -10,6 +10,7 @@
       padding: 20px;
       max-width: 800px;
       margin: 0 auto;
+      line-height: 1.5;
     }
     #errors {
       background-color: #ffebee;
@@ -18,7 +19,7 @@
       margin-top: 20px;
       border: 1px solid #f44336;
     }
-    h1 {
+    h1, h2, h3 {
       color: #333;
     }
     button {
@@ -29,42 +30,81 @@
       border-radius: 4px;
       cursor: pointer;
       margin-right: 10px;
+      margin-bottom: 10px;
     }
     .error-item {
       margin-bottom: 10px;
-      padding: 5px;
+      padding: 8px;
       border-bottom: 1px solid #ddd;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-family: monospace;
+    }
+    .solution {
+      background-color: #e8f5e9;
+      padding: 10px;
+      border-radius: 4px;
+      margin-top: 20px;
+      border: 1px solid #4caf50;
+    }
+    .warning {
+      color: #ff9800;
+      font-weight: bold;
+    }
+    pre {
+      background-color: #f5f5f5;
+      padding: 10px;
+      border-radius: 4px;
+      overflow-x: auto;
     }
   </style>
 </head>
 <body>
   <h1>Timeclock Web App Debug</h1>
-  <p>This page captures console errors from your app to help diagnose rendering issues.</p>
+  <p>This page helps diagnose rendering issues with your React application.</p>
   
   <div>
     <button id="checkApi">Check API Endpoint</button>
     <button id="checkImports">Check Imports</button>
+    <button id="checkDeps">Check Dependencies</button>
+    <button id="checkRoutes">Check Routing</button>
     <button id="clearErrors">Clear Errors</button>
   </div>
   
   <div id="errors">
-    <h3>Console Errors:</h3>
+    <h3>Captured Errors:</h3>
     <div id="errorsList"></div>
   </div>
 
+  <div class="solution">
+    <h3>Common Solutions</h3>
+    <p>Based on your app's architecture, here are some things to try:</p>
+    <ol>
+      <li>Check browser console for exact errors (this page captures them above)</li>
+      <li>Make sure all dependencies in package.json are installed and compatible</li>
+      <li>Verify that @emotion/styled and styled-components aren't conflicting</li>
+      <li>Look for MUI theme related issues - your ErrorMessage component was recently changed</li>
+      <li>Verify your API connection is working properly</li>
+    </ol>
+  </div>
+
   <script>
-    // Store original console error method
+    // Store original console methods
     const originalConsoleError = console.error;
+    const originalConsoleWarn = console.warn;
     
-    // Override console.error to capture and display errors
-    console.error = function() {
-      // Call original console.error
-      originalConsoleError.apply(console, arguments);
-      
-      // Display the error in our UI
+    // Add error to UI
+    function addErrorToUI(errorMsg, isWarning = false) {
       const errorsList = document.getElementById('errorsList');
       const errorDiv = document.createElement('div');
-      errorDiv.className = 'error-item';
+      errorDiv.className = 'error-item' + (isWarning ? ' warning' : '');
+      errorDiv.textContent = errorMsg;
+      errorsList.appendChild(errorDiv);
+    }
+    
+    // Override console methods to capture errors/warnings
+    console.error = function() {
+      originalConsoleError.apply(console, arguments);
       
       // Convert arguments to readable string
       let errorMsg = Array.from(arguments).map(arg => {
@@ -81,54 +121,137 @@
         }
       }).join(' ');
       
-      errorDiv.textContent = errorMsg;
-      errorsList.appendChild(errorDiv);
+      addErrorToUI(errorMsg);
     };
+    
+    console.warn = function() {
+      originalConsoleWarn.apply(console, arguments);
+      
+      let warnMsg = Array.from(arguments).map(arg => {
+        if (typeof arg === 'object') {
+          try {
+            return JSON.stringify(arg, null, 2);
+          } catch (e) {
+            return String(arg);
+          }
+        } else {
+          return String(arg);
+        }
+      }).join(' ');
+      
+      addErrorToUI('WARNING: ' + warnMsg, true);
+    };
+
+    // Capture uncaught errors
+    window.addEventListener('error', function(event) {
+      addErrorToUI('GLOBAL ERROR: ' + event.message + '\nAt: ' + event.filename + ':' + event.lineno);
+      return false;
+    });
+
+    // Capture promise rejections
+    window.addEventListener('unhandledrejection', function(event) {
+      addErrorToUI('UNHANDLED PROMISE REJECTION: ' + event.reason);
+    });
 
     // Check API endpoint
     document.getElementById('checkApi').addEventListener('click', async () => {
       try {
-        // Append a new API check result
-        const errorsList = document.getElementById('errorsList');
-        const resultDiv = document.createElement('div');
-        resultDiv.className = 'error-item';
+        addErrorToUI('Checking API endpoint...');
         
-        const API_URL = 'http://localhost:3001/api';
-        
-        resultDiv.textContent = 'Checking API endpoint...';
-        errorsList.appendChild(resultDiv);
+        // Try both local and production endpoints
+        const localAPI = 'http://localhost:3001/api';
+        const prodAPI = 'https://timeclock-backend.onrender.com/api';
         
         try {
-          const response = await fetch(`${API_URL}/health`);
-          const data = await response.json();
-          resultDiv.textContent = `API Health Check: ${JSON.stringify(data)}`;
+          const localResponse = await fetch(`${localAPI}/health`, { timeout: 3000 });
+          addErrorToUI(`Local API response: ${localResponse.status}`);
         } catch (err) {
-          resultDiv.textContent = `API Error: ${err.message}`;
+          addErrorToUI(`Local API error: ${err.message}`);
+        }
+        
+        try {
+          const prodResponse = await fetch(`${prodAPI}/health`, { timeout: 3000 });
+          addErrorToUI(`Production API response: ${prodResponse.status}`);
+        } catch (err) {
+          addErrorToUI(`Production API error: ${err.message}`);
         }
       } catch (err) {
-        console.error('Error checking API:', err);
+        addErrorToUI('Error checking API: ' + err.message);
       }
     });
 
     // Check imports
     document.getElementById('checkImports').addEventListener('click', () => {
       try {
-        // Try to dynamically import React
+        // Try to load main bundle
+        addErrorToUI('Attempting to load app bundle...');
+        
         const script = document.createElement('script');
         script.src = '/static/js/main.js';
         script.onload = () => {
-          const errorsList = document.getElementById('errorsList');
-          const resultDiv = document.createElement('div');
-          resultDiv.className = 'error-item';
-          resultDiv.textContent = 'Main.js loaded successfully';
-          errorsList.appendChild(resultDiv);
+          addErrorToUI('Main bundle loaded successfully!');
         };
         script.onerror = (err) => {
-          console.error('Failed to load main.js:', err);
+          addErrorToUI('Failed to load main bundle: ' + (err.message || 'Unknown error'));
         };
         document.head.appendChild(script);
       } catch (err) {
-        console.error('Error checking imports:', err);
+        addErrorToUI('Error checking imports: ' + err.message);
+      }
+    });
+    
+    // Check dependencies
+    document.getElementById('checkDeps').addEventListener('click', () => {
+      try {
+        addErrorToUI('Checking for React in window...');
+        setTimeout(() => {
+          if (window.React) {
+            addErrorToUI('React is loaded: ' + window.React.version);
+          } else {
+            addErrorToUI('React not found in window object');
+          }
+          
+          if (window.ReactDOM) {
+            addErrorToUI('ReactDOM is loaded: ' + window.ReactDOM.version);
+          } else {
+            addErrorToUI('ReactDOM not found in window object');
+          }
+          
+          if (window.StyledComponents) {
+            addErrorToUI('styled-components is loaded');
+          } else {
+            addErrorToUI('styled-components not found in window object');
+          }
+        }, 500);
+      } catch (err) {
+        addErrorToUI('Error checking dependencies: ' + err.message);
+      }
+    });
+    
+    // Check routing
+    document.getElementById('checkRoutes').addEventListener('click', () => {
+      try {
+        addErrorToUI('Current URL: ' + window.location.href);
+        addErrorToUI('URL params: ' + window.location.search);
+        
+        // Check if a subcontractor parameter exists
+        const params = new URLSearchParams(window.location.search);
+        const scParam = params.get('sc');
+        
+        if (scParam) {
+          addErrorToUI('Subcontractor parameter found: ' + scParam);
+          try {
+            const decoded = atob(scParam);
+            addErrorToUI('Decoded value: ' + decoded);
+          } catch (e) {
+            addErrorToUI('Failed to decode sc parameter: ' + e.message);
+          }
+        } else {
+          addErrorToUI('No subcontractor parameter found in URL');
+          addErrorToUI('ISSUE DETECTED: Your app restricts access without a valid sc parameter');
+        }
+      } catch (err) {
+        addErrorToUI('Error checking routes: ' + err.message);
       }
     });
     
@@ -136,6 +259,23 @@
     document.getElementById('clearErrors').addEventListener('click', () => {
       document.getElementById('errorsList').innerHTML = '';
     });
+    
+    // Initial analysis
+    window.onload = function() {
+      addErrorToUI('Page loaded successfully');
+      addErrorToUI('User Agent: ' + navigator.userAgent);
+      
+      // Check if running in an iframe
+      if (window !== window.top) {
+        addErrorToUI('WARNING: Running in an iframe, which might cause issues');
+      }
+      
+      // Check URL parameters
+      const params = new URLSearchParams(window.location.search);
+      if (!params.get('sc')) {
+        addErrorToUI('No subcontractor parameter found. Your app requires this for access!');
+      }
+    };
   </script>
 </body>
 </html> 

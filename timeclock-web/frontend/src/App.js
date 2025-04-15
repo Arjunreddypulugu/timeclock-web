@@ -10,8 +10,8 @@ import Camera from './components/Camera';
 import Button from './components/Button';
 import { verifyLocation, getUserStatus, registerUser, clockIn, clockOut } from './services/api';
 
-// Add this constant at the top, outside of the function to prevent access without proper link
-const ACCESS_RESTRICTED = true;
+// TEMPORARILY DISABLE access restriction for debugging
+const ACCESS_RESTRICTED = false;
 
 function App() {
   const [cookieId, setCookieId] = useState('');
@@ -39,41 +39,50 @@ function App() {
   const [clockOutImage, setClockOutImage] = useState('');
   const [captureMode, setCaptureMode] = useState(''); // 'clockIn' or 'clockOut'
 
+  // Application initialization & parameter handling
   useEffect(() => {
-    // Check for subcontractor parameter in URL
-    const params = new URLSearchParams(window.location.search);
-    const encodedSubcontractor = params.get('sc');
+    console.log('App initializing, checking for parameters...');
     
-    if (encodedSubcontractor) {
-      try {
-        // Decode the base64 parameter
-        const decodedSubcontractor = atob(encodedSubcontractor);
-        setSubContractor(decodedSubcontractor);
-        console.log('Auto-filled subcontractor:', decodedSubcontractor);
-      } catch (err) {
-        console.error('Error decoding subcontractor parameter:', err);
-        if (ACCESS_RESTRICTED) {
-          setError('Invalid access link. Please use a valid subcontractor link.');
-          setRedirectToHome(true);
-          return;
+    try {
+      // Check for subcontractor parameter in URL
+      const params = new URLSearchParams(window.location.search);
+      const encodedSubcontractor = params.get('sc');
+      
+      if (encodedSubcontractor) {
+        try {
+          // Decode the base64 parameter
+          const decodedSubcontractor = atob(encodedSubcontractor);
+          setSubContractor(decodedSubcontractor);
+          console.log('Auto-filled subcontractor:', decodedSubcontractor);
+        } catch (err) {
+          console.error('Error decoding subcontractor parameter:', err);
+          if (ACCESS_RESTRICTED) {
+            setError('Invalid access link. Please use a valid subcontractor link.');
+            return;
+          }
         }
+      } else if (ACCESS_RESTRICTED) {
+        console.log('Access restricted and no SC parameter found');
+        setError('Access restricted. Please use a proper subcontractor link to access this application.');
+        return;
       }
-    } else if (ACCESS_RESTRICTED) {
-      setError('Access restricted. Please use a proper subcontractor link to access this application.');
-      setRedirectToHome(true);
-      return;
-    }
-    
-    // Generate cookie ID if not exists
-    const storedCookieId = localStorage.getItem('timeclockCookieId');
-    if (storedCookieId) {
-      setCookieId(storedCookieId);
-      checkUserStatus(storedCookieId);
-    } else {
-      const newCookieId = 'tc-' + Date.now();
-      localStorage.setItem('timeclockCookieId', newCookieId);
-      setCookieId(newCookieId);
-      setIsNewUser(true);
+      
+      // Generate cookie ID if not exists
+      const storedCookieId = localStorage.getItem('timeclockCookieId');
+      if (storedCookieId) {
+        console.log('Found existing cookie ID:', storedCookieId);
+        setCookieId(storedCookieId);
+        checkUserStatus(storedCookieId);
+      } else {
+        const newCookieId = 'tc-' + Date.now();
+        console.log('Creating new cookie ID:', newCookieId);
+        localStorage.setItem('timeclockCookieId', newCookieId);
+        setCookieId(newCookieId);
+        setIsNewUser(true);
+      }
+    } catch (error) {
+      console.error('Error in initialization:', error);
+      setError('Application initialization error: ' + (error.message || 'Unknown error'));
     }
   }, []);
 
@@ -301,68 +310,46 @@ function App() {
   return (
     <ThemeProvider theme={theme}>
       <GlobalStyles />
-      <Layout error={error} loading={false}>
+      <Layout error={error} loading={loading}>
         {showCamera ? (
-          <div>
-            <h2>{captureMode === 'clockIn' ? 'Take Clock-In Photo' : 'Take Clock-Out Photo'}</h2>
-            <Camera 
-              onCapture={handleCaptureImage}
-              onClear={() => handleCaptureImage('')}
-            />
-            <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center' }}>
-              <Button 
-                variant="secondary" 
-                onClick={cancelCapture}
-              >
-                Cancel
-              </Button>
-              <Button 
-                variant="primary" 
-                onClick={captureMode === 'clockIn' ? handleClockIn : handleClockOut}
-                disabled={
-                  (captureMode === 'clockIn' && !clockInImage) || 
-                  (captureMode === 'clockOut' && !clockOutImage)
-                }
-              >
-                {captureMode === 'clockIn' ? 'Complete Clock In' : 'Complete Clock Out'}
-              </Button>
-            </div>
-          </div>
+          <Camera
+            onCapture={handleCaptureImage}
+            onClose={cancelCapture}
+            mode={captureMode}
+          />
         ) : (
           <>
-            <LocationCard 
-              location={location}
-              customerName={customerName}
-              subContractor={subContractor}
-              handleShareLocation={handleShareLocation}
-              loading={loading}
-            />
-            
             {isNewUser ? (
-              <RegistrationForm 
-                handleRegister={handleRegister}
-                loading={loading}
+              <RegistrationForm
                 subContractor={subContractor}
                 setSubContractor={setSubContractor}
                 employeeName={employeeName}
                 setEmployeeName={setEmployeeName}
                 phoneNumber={phoneNumber}
                 setPhoneNumber={setPhoneNumber}
+                onSubmit={handleRegister}
               />
             ) : (
-              <TimeClockCard 
-                hasOpenSession={hasOpenSession}
-                openSession={openSession}
-                userDetails={userDetails}
-                handleClockIn={startClockIn}
-                handleClockOut={startClockOut}
-                notes={notes}
-                setNotes={setNotes}
-                loading={loading}
-                location={location}
-                customerName={customerName}
-                subContractor={subContractor}
-              />
+              <>
+                {!location.lat || !location.lon ? (
+                  <LocationCard onShareLocation={handleShareLocation} subContractor={subContractor} />
+                ) : (
+                  <TimeClockCard
+                    customerName={customerName}
+                    subContractor={subContractor}
+                    hasOpenSession={hasOpenSession}
+                    onClockIn={startClockIn}
+                    onClockOut={startClockOut}
+                    onTakePhoto={handleCaptureImage}
+                    clockInImage={clockInImage}
+                    clockOutImage={clockOutImage}
+                    notes={notes}
+                    setNotes={setNotes}
+                    handleClockIn={handleClockIn}
+                    handleClockOut={handleClockOut}
+                  />
+                )}
+              </>
             )}
           </>
         )}
