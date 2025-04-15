@@ -774,7 +774,7 @@ app.post('/api/clock-in-multipart', upload.single('image'), async (req, res) => 
   }
 });
 
-app.post('/clock-out-multipart', upload.single('image'), async (req, res) => {
+app.post('/api/clock-out-multipart', upload.single('image'), async (req, res) => {
   try {
     console.log('Received multipart clock-out request');
     
