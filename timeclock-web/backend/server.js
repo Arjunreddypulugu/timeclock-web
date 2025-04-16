@@ -782,19 +782,17 @@ app.post('/api/clock-out-multipart', upload.single('image'), async (req, res) =>
     const { cookie, notes } = req.body;
     
     // Get image data from either the file or the imageData field
-    let imageBuffer = null;
+    let imageData = null;
     if (req.file) {
       // If file was uploaded as binary
       console.log('Image received as binary file');
-      imageBuffer = req.file.buffer;
+      const base64Image = req.file.buffer.toString('base64');
+      const mimeType = req.file.mimetype || 'image/jpeg';
+      imageData = `data:${mimeType};base64,${base64Image}`;
     } else if (req.body.imageData) {
       // If image was sent as base64 string
       console.log('Image received as base64 string');
-      let base64Data = req.body.imageData;
-      if (base64Data.startsWith('data:image/')) {
-        base64Data = base64Data.split(',')[1];
-      }
-      imageBuffer = Buffer.from(base64Data, 'base64');
+      imageData = req.body.imageData;
     }
     
     // Create a clock-out record in the same way as the JSON endpoint
@@ -830,7 +828,7 @@ app.post('/api/clock-out-multipart', upload.single('image'), async (req, res) =>
     // Update the record with clock-out information
     await pool.request()
       .input('recordId', sql.Int, recordId)
-      .input('clockOutImage', sql.VarBinary(sql.MAX), imageBuffer)
+      .input('clockOutImage', sql.NVarChar, imageData || null)
       .input('notes', sql.NVarChar, notes || null)
       .query(`
         UPDATE TimeClock
