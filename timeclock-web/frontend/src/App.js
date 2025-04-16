@@ -297,10 +297,34 @@ function App() {
     try {
       setLoading(true);
       setError(''); // Clear any existing errors
-      debugLog('Proceeding with clock-in', { imageSize: clockInImage.length });
+      debugLog('Proceeding with clock-in', { 
+        imageSize: clockInImage.length, 
+        startsWith: clockInImage.substring(0, 30)
+      });
       
-      // Validate image data before sending
-      if (!clockInImage.includes('base64') && !clockInImage.startsWith('data:image/')) {
+      // Validate image data before sending with more robust check
+      let validImage = false;
+      
+      // Check for data URI format
+      if (clockInImage.startsWith('data:image/')) {
+        validImage = true;
+      } 
+      // Check for base64 content 
+      else if (clockInImage.includes('base64')) {
+        validImage = true;
+      }
+      // Check if it looks like base64 data
+      else if (/^[A-Za-z0-9+/=]+$/.test(clockInImage.replace(/\s/g, ''))) {
+        // Looks like raw base64, let's add the prefix
+        clockInImage = `data:image/jpeg;base64,${clockInImage.replace(/\s/g, '')}`;
+        validImage = true;
+      }
+      
+      if (!validImage) {
+        debugLog('Invalid image format detected:', { 
+          startsWith: clockInImage.substring(0, 30),
+          length: clockInImage.length
+        });
         throw new Error('Invalid image format. Please retake the photo.');
       }
       
@@ -356,7 +380,10 @@ function App() {
         lon: location.lon,
         cookie: cookieId,
         notes: notes || '',
-        image: clockInImage
+        image: clockInImage,
+        // Include browser info for debugging
+        browserInfo: browserInfo.browser,
+        isMobile: browserInfo.isMobile
       };
       
       // Validate required fields
@@ -379,7 +406,7 @@ function App() {
         Number: clockInData.number
       }));
       
-      debugLog(`Sending clock-in data for ${clockInData.employee} at location ${location.lat},${location.lon}`);
+      debugLog(`Sending clock-in data for ${clockInData.employee} at location ${location.lat},${location.lon} in ${browserInfo.browser}`);
       
       try {
         const response = await clockIn(clockInData);
@@ -404,6 +431,11 @@ function App() {
           errorMessage = 'The server returned an invalid response. Please try again.';
         } else if (errorMessage.includes('image')) {
           errorMessage = 'There was a problem with your photo. Please try again using the Upload option.';
+          
+          // Check if we're on iOS and provide more specific advice
+          if (browserInfo.isIOS) {
+            errorMessage += ' On iOS, try waiting for the camera to fully load before taking a photo.';
+          }
         } else if (errorMessage.includes('network')) {
           errorMessage = 'Network error. Please check your connection and try again.';
         } else if (errorMessage.includes('Missing required fields')) {
@@ -475,25 +507,47 @@ function App() {
     try {
       setLoading(true);
       setError(''); // Clear any existing errors
-      debugLog('Proceeding with clock-out', { imageSize: clockOutImage.length });
+      debugLog('Proceeding with clock-out', { 
+        imageSize: clockOutImage.length,
+        startsWith: clockOutImage.substring(0, 30)
+      });
       
-      // Validate image data before sending
-      if (!clockOutImage.includes('base64') && !clockOutImage.startsWith('data:image/')) {
+      // Validate image data before sending with more robust check
+      let validImage = false;
+      
+      // Check for data URI format
+      if (clockOutImage.startsWith('data:image/')) {
+        validImage = true;
+      } 
+      // Check for base64 content 
+      else if (clockOutImage.includes('base64')) {
+        validImage = true;
+      }
+      // Check if it looks like base64 data
+      else if (/^[A-Za-z0-9+/=]+$/.test(clockOutImage.replace(/\s/g, ''))) {
+        // Looks like raw base64, let's add the prefix
+        clockOutImage = `data:image/jpeg;base64,${clockOutImage.replace(/\s/g, '')}`;
+        validImage = true;
+      }
+      
+      if (!validImage) {
+        debugLog('Invalid image format detected:', { 
+          startsWith: clockOutImage.substring(0, 30),
+          length: clockOutImage.length
+        });
         throw new Error('Invalid image format. Please retake the photo.');
       }
       
       const clockOutData = {
         cookie: cookieId,
         notes,
-        image: clockOutImage
+        image: clockOutImage,
+        // Include browser info for debugging
+        browserInfo: browserInfo.browser,
+        isMobile: browserInfo.isMobile
       };
       
-      // Special handling for Safari
-      if (browserInfo.browser === 'Safari' && browserInfo.isIOS) {
-        debugLog('Using Safari-specific clock-out process');
-      }
-      
-      debugLog(`Sending clock-out data for cookie ${cookieId}`);
+      debugLog(`Sending clock-out data for cookie ${cookieId} in ${browserInfo.browser}`);
       
       try {
         const response = await clockOut(clockOutData);
@@ -515,17 +569,12 @@ function App() {
         // More user-friendly error messages
         if (errorMessage.includes('Failed to parse server response')) {
           errorMessage = 'The server returned an invalid response. Please try again.';
-          
-          // For Safari, provide more specific guidance
-          if (browserInfo.browser === 'Safari') {
-            errorMessage += ' This issue is more common on Safari. Try using Chrome if available.';
-          }
         } else if (errorMessage.includes('image')) {
-          errorMessage = 'There was a problem with your photo. Please retake it.';
+          errorMessage = 'There was a problem with your photo. Please try again using the Upload option.';
           
-          // For Safari, add extra suggestions
-          if (browserInfo.browser === 'Safari') {
-            errorMessage += ' Make sure you are in a well-lit area and the camera has good focus.';
+          // Check if we're on iOS and provide more specific advice
+          if (browserInfo.isIOS) {
+            errorMessage += ' On iOS, try waiting for the camera to fully load before taking a photo.';
           }
         } else if (errorMessage.includes('network')) {
           errorMessage = 'Network error. Please check your connection and try again.';

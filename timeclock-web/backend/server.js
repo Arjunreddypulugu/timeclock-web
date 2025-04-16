@@ -451,92 +451,216 @@ app.post('/api/clock-in', async (req, res) => {
   }
 });
 
-// Clock out
-app.post('/api/clock-out', async (req, res) => {
+// Special endpoints for multipart form data (iOS Safari)
+app.post('/api/clock-in-multipart', upload.single('image'), async (req, res) => {
   try {
     await poolConnect;
+    // Keep minimal logs
+    console.log('Received multipart clock-in request from:', req.body.browserInfo, req.body.isMobile ? '(Mobile)' : '(Desktop)');
     
-    // Log the request but omit the image data
-    const { image, ...logData } = req.body;
-    console.log('Clock-out request received:', logData);
-    
-    const { cookie, notes } = req.body;
-    
-    if (!cookie) {
-      return res.status(400).json({ error: 'Missing required cookie field' });
+    // Extract data from form fields (req.body)
+    const { subContractor, employee, number, lat, lon, cookie, notes } = req.body;
+
+    // Basic validation
+    if (!subContractor || !employee || !number || !lat || !lon || !cookie) {
+      console.error('Multipart clock-in missing required fields');
+      return res.status(400).json({ error: 'Missing required fields in multipart request' });
     }
 
-    // Process base64 image if provided
+    // Process image
     let imageBuffer = null;
-    if (image) {
+    if (req.file) {
+      imageBuffer = req.file.buffer;
+    } else if (req.body.imageData) {
       try {
-        // Handle different image encodings from different browsers
-        let base64Data;
-        if (image.startsWith('data:image/')) {
-          // Remove data URI prefix (e.g., 'data:image/jpeg;base64,')
-          base64Data = image.split(',')[1];
-        } else {
-          base64Data = image;
-        }
-        
-        // Verify the base64 string is valid
-        if (!/^[A-Za-z0-9+/=]+$/.test(base64Data)) {
-          console.warn('Invalid base64 characters in image data');
-          return res.status(400).json({ error: 'The image data contains invalid characters' });
-        }
-        
-        // Create buffer from base64
+        const base64Data = req.body.imageData.replace(/^data:image\/\w+;base64,/, '');
         imageBuffer = Buffer.from(base64Data, 'base64');
-        console.log(`Received image for clock-out: ${imageBuffer.length} bytes`);
-        
-        // Validate image data
-        if (imageBuffer.length < 100) {
-          console.warn('Image data too small, likely invalid');
-          return res.status(400).json({ error: 'The provided image appears to be invalid' });
-        }
       } catch (imgErr) {
-        console.error(`Error processing clock-out image: ${imgErr.message}`);
+        console.error(`Multipart image processing error: ${imgErr.message}`);
         return res.status(400).json({ error: `Image processing error: ${imgErr.message}` });
       }
     }
+    // Basic image size validation
+    if (imageBuffer && imageBuffer.length < 100) {
+      return res.status(400).json({ error: 'The provided image appears to be invalid or too small.' });
+    }
 
-    // Create the request object
+    // Verify worksite location
+    const validLocation = await pool.request()
+      .input('lat', sql.Float, parseFloat(lat))
+      .input('lon', sql.Float, parseFloat(lon))
+      .query(`SELECT TOP 1 customer_name FROM LocationCustomerMapping WHERE @lat BETWEEN min_latitude AND max_latitude AND (@lon BETWEEN min_longitude AND max_longitude OR @lon BETWEEN max_longitude AND min_longitude)`);
+    
+    if (validLocation.recordset.length === 0) {
+      return res.status(400).json({ error: 'Invalid worksite location. Cannot clock in.' });
+    }
+
+    // Check for open session
+    const openSession = await pool.request()
+      .input('cookie', sql.NVarChar, cookie)
+      .query(`SELECT TOP 1 ID FROM TimeClock WHERE Cookie = @cookie AND ClockOut IS NULL`);
+
+    if (openSession.recordset.length > 0) {
+      return res.status(400).json({ error: 'You already have an open session' });
+    }
+
+    // Prepare SQL request
     const request = pool.request()
+      .input('subContractor', sql.NVarChar, subContractor)
+      .input('employee', sql.NVarChar, employee)
+      .input('number', sql.NVarChar, number)
+      .input('lat', sql.Float, parseFloat(lat))
+      .input('lon', sql.Float, parseFloat(lon))
       .input('cookie', sql.NVarChar, cookie)
       .input('notes', sql.NVarChar(sql.MAX), notes || '');
     
-    // Only add image if it's valid
+    if (imageBuffer) {
+      request.input('image', sql.VarBinary(sql.MAX), imageBuffer);
+    }
+    
+    // Build query
+    let query = `
+      INSERT INTO TimeClock (SubContractor, Employee, Number, ClockIn, Lat, Lon, Cookie, ClockInNotes${imageBuffer ? ', ClockInImage' : ''})
+      VALUES (@subContractor, @employee, @number, GETDATE(), @lat, @lon, @cookie, @notes${imageBuffer ? ', @image' : ''});
+      SELECT SCOPE_IDENTITY() as id;
+    `;
+    
+    // Execute query
+    const result = await request.query(query);
+    const newId = result.recordset[0].id;
+      
+    // Respond
+    res.json({
+      id: newId,
+      customer_name: validLocation.recordset[0].customer_name,
+      imageIncluded: !!imageBuffer,
+      browser: req.body.browserInfo,
+      isMobile: req.body.isMobile === 'true'
+    });
+
+  } catch (error) {
+    console.error('Error in /api/clock-in-multipart:', error); // Keep minimal log
+    res.status(500).json({ error: `Server error during multipart clock-in: ${error.message}` });
+  }
+});
+
+app.post('/api/clock-out-multipart', upload.single('image'), async (req, res) => {
+  try {
+    await poolConnect; // Ensure we're using the connection pool, not creating new connections
+    
+    console.log('Received multipart clock-out request', {
+      browser: req.body.browserInfo,
+      isMobile: req.body.isMobile === 'true' ? 'true' : 'false',
+      hasFile: !!req.file,
+      hasImageData: !!req.body.imageData,
+      fields: Object.keys(req.body).filter(k => k !== 'imageData')
+    });
+    
+    // Extract data from form fields
+    const { cookie, notes } = req.body;
+    
+    // Validate required fields
+    if (!cookie) {
+      console.error('Missing cookie in multipart clock-out request');
+      return res.status(400).json({ error: 'Missing required cookie field' });
+    }
+    
+    // Get image data from either the file or the imageData field
+    let imageBuffer = null;
+    
+    if (req.file) {
+      // If file was uploaded as binary
+      console.log('Image received as binary file:', { 
+        size: req.file.size,
+        mimetype: req.file.mimetype
+      });
+      imageBuffer = req.file.buffer;
+    } else if (req.body.imageData) {
+      // If image was sent as base64 string
+      console.log('Image received as base64 string, processing...');
+      try {
+        // Handle different image encodings
+        let base64Data;
+        if (req.body.imageData.startsWith('data:image/')) {
+          base64Data = req.body.imageData.split(',')[1];
+        } else {
+          base64Data = req.body.imageData;
+        }
+        
+        // Clean the base64 data (remove any non-base64 characters)
+        base64Data = base64Data.replace(/[^A-Za-z0-9+/=]/g, '');
+        
+        imageBuffer = Buffer.from(base64Data, 'base64');
+        console.log(`Processed base64 image: ${imageBuffer.length} bytes`);
+      } catch (imgErr) {
+        console.error('Error processing clock-out image data:', imgErr);
+        return res.status(400).json({ error: `Image processing error: ${imgErr.message}` });
+      }
+    }
+    
+    // Basic validation on the image buffer
+    if (imageBuffer && imageBuffer.length < 100) {
+      console.warn('Image buffer too small, likely invalid:', imageBuffer.length);
+      return res.status(400).json({ error: 'The provided image appears to be invalid or too small.' });
+    }
+    
+    console.log(`Final image buffer for clock-out: ${imageBuffer ? imageBuffer.length + ' bytes' : 'not available'}`);
+    
+    // Check for open session - use the same pattern as the normal clock-out endpoint
+    const openSession = await pool.request()
+      .input('cookie', sql.NVarChar, cookie)
+      .query(`
+        SELECT TOP 1 ID FROM TimeClock
+        WHERE Cookie = @cookie AND ClockOut IS NULL
+      `);
+      
+    if (openSession.recordset.length === 0) {
+      return res.status(404).json({ error: 'No open session found' });
+    }
+    
+    const recordId = openSession.recordset[0].ID;
+    console.log(`Found active clock-in record: ID ${recordId}`);
+    
+    // Create the request with optional image
+    const request = pool.request()
+      .input('recordId', sql.Int, recordId)
+      .input('notes', sql.NVarChar(sql.MAX), notes || '');
+    
     if (imageBuffer && imageBuffer.length > 0) {
       request.input('image', sql.VarBinary(sql.MAX), imageBuffer);
     }
     
-    // Build the query dynamically based on whether we have an image
-    let query = `
-      UPDATE TimeClock 
-      SET ClockOut = GETDATE(),
+    // Build dynamic query based on whether we have an image
+    const query = `
+      UPDATE TimeClock
+      SET ClockOut = GETDATE(), 
           ClockOutNotes = @notes
           ${imageBuffer && imageBuffer.length > 0 ? ', ClockOutImage = @image' : ''}
-      WHERE Cookie = @cookie AND ClockOut IS NULL;
+      WHERE ID = @recordId;
       
       SELECT @@ROWCOUNT as updated;
     `;
     
+    // Execute the update query
     console.log('Executing SQL update for clock-out...');
     const result = await request.query(query);
-    console.log(`Update completed, rows affected: ${result.recordset[0].updated}`);
-
-    if (result.recordset[0].updated === 0) {
-      return res.status(404).json({ error: 'No open session found' });
+    const rowsUpdated = result.recordset[0].updated;
+    
+    console.log(`Clock-out update completed, rows affected: ${rowsUpdated}`);
+    
+    if (rowsUpdated === 0) {
+      return res.status(404).json({ error: 'Failed to update record. Please try again.' });
     }
-
-    res.json({ 
-      success: true,
+    
+    // Return success response
+    return res.json({ 
+      success: true, 
+      message: 'Clock out successful',
       imageIncluded: !!(imageBuffer && imageBuffer.length > 0)
     });
-  } catch (err) {
-    console.error(`Clock out error: ${err.message}`);
-    console.error(err.stack);
-    res.status(500).json({ error: err.message });
+  } catch (error) {
+    console.error('Error in clock-out-multipart:', error);
+    return res.status(500).json({ error: error.message });
   }
 });
 
@@ -678,168 +802,6 @@ app.get('/api/subcontractor-links', async (req, res) => {
   } catch (err) {
     console.error(`Error fetching subcontractor links: ${err.message}`);
     res.status(500).json({ error: err.message });
-  }
-});
-
-// Special endpoints for multipart form data (iOS Safari)
-app.post('/api/clock-in-multipart', upload.single('image'), async (req, res) => {
-  try {
-    await poolConnect;
-    // Keep minimal logs
-    console.log('Received multipart clock-in request from:', req.body.browserInfo, req.body.isMobile ? '(Mobile)' : '(Desktop)');
-    
-    // Extract data from form fields (req.body)
-    const { subContractor, employee, number, lat, lon, cookie, notes } = req.body;
-
-    // Basic validation
-    if (!subContractor || !employee || !number || !lat || !lon || !cookie) {
-      console.error('Multipart clock-in missing required fields');
-      return res.status(400).json({ error: 'Missing required fields in multipart request' });
-    }
-
-    // Process image
-    let imageBuffer = null;
-    if (req.file) {
-      imageBuffer = req.file.buffer;
-    } else if (req.body.imageData) {
-      try {
-        const base64Data = req.body.imageData.replace(/^data:image\/\w+;base64,/, '');
-        imageBuffer = Buffer.from(base64Data, 'base64');
-      } catch (imgErr) {
-        console.error(`Multipart image processing error: ${imgErr.message}`);
-        return res.status(400).json({ error: `Image processing error: ${imgErr.message}` });
-      }
-    }
-    // Basic image size validation
-    if (imageBuffer && imageBuffer.length < 100) {
-      return res.status(400).json({ error: 'The provided image appears to be invalid or too small.' });
-    }
-
-    // Verify worksite location
-    const validLocation = await pool.request()
-      .input('lat', sql.Float, parseFloat(lat))
-      .input('lon', sql.Float, parseFloat(lon))
-      .query(`SELECT TOP 1 customer_name FROM LocationCustomerMapping WHERE @lat BETWEEN min_latitude AND max_latitude AND (@lon BETWEEN min_longitude AND max_longitude OR @lon BETWEEN max_longitude AND min_longitude)`);
-    
-    if (validLocation.recordset.length === 0) {
-      return res.status(400).json({ error: 'Invalid worksite location. Cannot clock in.' });
-    }
-
-    // Check for open session
-    const openSession = await pool.request()
-      .input('cookie', sql.NVarChar, cookie)
-      .query(`SELECT TOP 1 ID FROM TimeClock WHERE Cookie = @cookie AND ClockOut IS NULL`);
-
-    if (openSession.recordset.length > 0) {
-      return res.status(400).json({ error: 'You already have an open session' });
-    }
-
-    // Prepare SQL request
-    const request = pool.request()
-      .input('subContractor', sql.NVarChar, subContractor)
-      .input('employee', sql.NVarChar, employee)
-      .input('number', sql.NVarChar, number)
-      .input('lat', sql.Float, parseFloat(lat))
-      .input('lon', sql.Float, parseFloat(lon))
-      .input('cookie', sql.NVarChar, cookie)
-      .input('notes', sql.NVarChar(sql.MAX), notes || '');
-    
-    if (imageBuffer) {
-      request.input('image', sql.VarBinary(sql.MAX), imageBuffer);
-    }
-    
-    // Build query
-    let query = `
-      INSERT INTO TimeClock (SubContractor, Employee, Number, ClockIn, Lat, Lon, Cookie, ClockInNotes${imageBuffer ? ', ClockInImage' : ''})
-      VALUES (@subContractor, @employee, @number, GETDATE(), @lat, @lon, @cookie, @notes${imageBuffer ? ', @image' : ''});
-      SELECT SCOPE_IDENTITY() as id;
-    `;
-    
-    // Execute query
-    const result = await request.query(query);
-    const newId = result.recordset[0].id;
-      
-    // Respond
-    res.json({
-      id: newId,
-      customer_name: validLocation.recordset[0].customer_name,
-      imageIncluded: !!imageBuffer,
-      browser: req.body.browserInfo,
-      isMobile: req.body.isMobile === 'true'
-    });
-
-  } catch (error) {
-    console.error('Error in /api/clock-in-multipart:', error); // Keep minimal log
-    res.status(500).json({ error: `Server error during multipart clock-in: ${error.message}` });
-  }
-});
-
-app.post('/api/clock-out-multipart', upload.single('image'), async (req, res) => {
-  try {
-    console.log('Received multipart clock-out request');
-    
-    // Extract data from form fields
-    const { cookie, notes } = req.body;
-    
-    // Get image data from either the file or the imageData field
-    let imageData = null;
-    if (req.file) {
-      // If file was uploaded as binary
-      console.log('Image received as binary file');
-      const base64Image = req.file.buffer.toString('base64');
-      const mimeType = req.file.mimetype || 'image/jpeg';
-      imageData = `data:${mimeType};base64,${base64Image}`;
-    } else if (req.body.imageData) {
-      // If image was sent as base64 string
-      console.log('Image received as base64 string');
-      imageData = req.body.imageData;
-    }
-    
-    // Create a clock-out record in the same way as the JSON endpoint
-    const pool = await sql.connect(dbConfig);
-    
-    // Check for existing user
-    const userCheck = await pool.request()
-      .input('cookie', sql.NVarChar, cookie)
-      .query('SELECT * FROM TimeClock WHERE Cookie = @cookie');
-      
-    if (userCheck.recordset.length === 0) {
-      console.log('User not found in clock-out-multipart');
-      return res.status(404).json({ error: 'User not found' });
-    }
-    
-    const userId = userCheck.recordset[0].ID;
-    
-    // Find the latest clock-in record without a clock-out
-    const latestRecord = await pool.request()
-      .input('userId', sql.Int, userId)
-      .query(`
-        SELECT TOP 1 * FROM TimeClock
-        WHERE ID = @userId AND ClockOut IS NULL
-        ORDER BY ClockIn DESC
-      `);
-      
-    if (latestRecord.recordset.length === 0) {
-      return res.status(400).json({ error: 'No active clock-in found' });
-    }
-    
-    const recordId = latestRecord.recordset[0].ID;
-    
-    // Update the record with clock-out information
-    await pool.request()
-      .input('recordId', sql.Int, recordId)
-      .input('clockOutImage', sql.NVarChar, imageData || null)
-      .input('notes', sql.NVarChar, notes || null)
-      .query(`
-        UPDATE TimeClock
-        SET ClockOut = GETDATE(), ClockOutImage = @clockOutImage, ClockOutNotes = @notes
-        WHERE ID = @recordId
-      `);
-      
-    return res.json({ success: true, message: 'Clock out successful' });
-  } catch (error) {
-    console.error('Error in clock-out-multipart:', error);
-    return res.status(500).json({ error: error.message });
   }
 });
 
