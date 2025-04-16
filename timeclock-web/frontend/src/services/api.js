@@ -335,82 +335,59 @@ export const clockIn = async (clockInData) => {
     if (browserInfo.name === 'Safari' || browserInfo.isIOS) {
       debugLog('Using Safari-specific API approach');
       
-      try {
-        // For Safari/iOS, we'll use a different approach that doesn't involve
-        // sending the entire image data as JSON, which can be problematic
-        
-        // First try to get blob from image data
-        let imageBlob = null;
-        let didCreateBlob = false;
-        
-        try {
-          if (sanitizedData.image && sanitizedData.image.startsWith('data:')) {
-            debugLog('Converting image data to blob...');
-            const base64Response = await fetch(sanitizedData.image);
-            imageBlob = await base64Response.blob();
-            didCreateBlob = true;
-            debugLog('Successfully converted image to blob', { 
-              size: imageBlob.size,
-              type: imageBlob.type
-            });
-          }
-        } catch (imageError) {
-          console.error('Failed to convert image to blob:', imageError);
-          debugLog('Image conversion failed:', { error: imageError.message });
-        }
-        
-        // Create a FormData object for multipart/form-data
-        const formData = new FormData();
-        
-        // Add browser info to help with debugging
-        formData.append('browserInfo', browserInfo.name);
-        formData.append('isMobile', browserInfo.isIOS ? 'true' : 'false');
-        
-        // Add all the fields except image
-        Object.keys(sanitizedData).forEach(key => {
-          if (key !== 'image') {
-            formData.append(key, sanitizedData[key]);
-            debugLog(`Added form field: ${key}`);
-          }
-        });
-        
-        // Add the image as a blob if we have it
-        if (didCreateBlob && imageBlob && imageBlob.size > 0) {
-          formData.append('image', imageBlob, 'photo.jpg');
-          debugLog(`Added image blob to form data: ${imageBlob.size} bytes`);
-        } else if (sanitizedData.image) {
-          // If no blob but we have image string data, add it as a field
-          debugLog('Using image data as string instead of blob');
-          formData.append('imageData', sanitizedData.image);
-          debugLog('Added image data string to form data');
-        }
-        
-        // Log what we're about to send
-        debugLog('Sending multipart form data to /api/clock-in-multipart');
-        
-        // Send the form data
-        const response = await fetch(`${API_URL}/clock-in-multipart`, {
-          method: 'POST',
-          body: formData,
-        });
+      // For Safari/iOS, we'll use a different approach that doesn't involve
+      // sending the entire image data as JSON, which can be problematic
       
-        if (!response.ok) {
-          const errorText = await response.text();
-          debugLog('Clock-in error (multipart):', errorText);
-          throw new Error(errorText || `HTTP error! status: ${response.status}`);
+      // First try to get blob from image data
+      let imageBlob = null;
+      try {
+        if (sanitizedData.image && sanitizedData.image.startsWith('data:')) {
+          const base64Response = await fetch(sanitizedData.image);
+          imageBlob = await base64Response.blob();
+          debugLog('Successfully converted image to blob', { size: imageBlob.size });
         }
-        
-        try {
-          const data = await response.json();
-          debugLog('Received successful response from server:', data);
-          return data;
-        } catch (jsonError) {
-          debugLog('Failed to parse server response (multipart):', jsonError);
-          throw new Error('Failed to parse server response: ' + jsonError.message);
+      } catch (imageError) {
+        console.error('Failed to convert image to blob:', imageError);
+      }
+      
+      // Create a FormData object for multipart/form-data
+      const formData = new FormData();
+      
+      // Add all the fields except image
+      Object.keys(sanitizedData).forEach(key => {
+        if (key !== 'image') {
+          formData.append(key, sanitizedData[key]);
         }
-      } catch (iosError) {
-        debugLog('iOS-specific handling failed:', iosError);
-        throw iosError;
+      });
+      
+      // Add the image as a blob if we have it
+      if (imageBlob) {
+        formData.append('image', imageBlob, 'photo.jpg');
+        debugLog('Added image blob to form data');
+      } else if (sanitizedData.image) {
+        // If no blob but we have image string data, add it as a field
+        formData.append('imageData', sanitizedData.image);
+        debugLog('Added image data string to form data');
+      }
+      
+      // Send the form data
+      const response = await fetch(`${API_URL}/clock-in-multipart`, {
+        method: 'POST',
+        body: formData,
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        debugLog('Clock-in error (multipart):', errorText);
+        throw new Error(errorText || `HTTP error! status: ${response.status}`);
+      }
+      
+      try {
+        const data = await response.json();
+        return data;
+      } catch (jsonError) {
+        debugLog('Failed to parse server response (multipart):', jsonError);
+        throw new Error('Failed to parse server response: ' + jsonError.message);
       }
     } else {
       // Standard approach for other browsers
@@ -494,79 +471,56 @@ export const clockOut = async (clockOutData) => {
     if (browserInfo.name === 'Safari' || browserInfo.isIOS) {
       debugLog('Using Safari-specific API approach for clock-out');
       
+      // First try to get blob from image data
+      let imageBlob = null;
       try {
-        // First try to get blob from image data
-        let imageBlob = null;
-        let didCreateBlob = false;
-        
-        try {
-          if (sanitizedData.image && sanitizedData.image.startsWith('data:')) {
-            debugLog('Converting clock-out image data to blob...');
-            const base64Response = await fetch(sanitizedData.image);
-            imageBlob = await base64Response.blob();
-            didCreateBlob = true;
-            debugLog('Successfully converted clock-out image to blob', { 
-              size: imageBlob.size,
-              type: imageBlob.type
-            });
-          }
-        } catch (imageError) {
-          console.error('Failed to convert clock-out image to blob:', imageError);
-          debugLog('Clock-out image conversion failed:', { error: imageError.message });
+        if (sanitizedData.image && sanitizedData.image.startsWith('data:')) {
+          const base64Response = await fetch(sanitizedData.image);
+          imageBlob = await base64Response.blob();
+          debugLog('Successfully converted image to blob', { size: imageBlob.size });
         }
-        
-        // Create a FormData object for multipart/form-data
-        const formData = new FormData();
-        
-        // Add browser info to help with debugging
-        formData.append('browserInfo', browserInfo.name);
-        formData.append('isMobile', browserInfo.isIOS ? 'true' : 'false');
-        
-        // Add all the fields except image
-        Object.keys(sanitizedData).forEach(key => {
-          if (key !== 'image') {
-            formData.append(key, sanitizedData[key]);
-            debugLog(`Added clock-out form field: ${key}`);
-          }
-        });
-        
-        // Add the image as a blob if we have it
-        if (didCreateBlob && imageBlob && imageBlob.size > 0) {
-          formData.append('image', imageBlob, 'photo.jpg');
-          debugLog(`Added clock-out image blob to form data: ${imageBlob.size} bytes`);
-        } else if (sanitizedData.image) {
-          // If no blob but we have image string data, add it as a field
-          debugLog('Using clock-out image data as string instead of blob');
-          formData.append('imageData', sanitizedData.image);
-          debugLog('Added clock-out image data string to form data');
+      } catch (imageError) {
+        console.error('Failed to convert image to blob:', imageError);
+      }
+      
+      // Create a FormData object for multipart/form-data
+      const formData = new FormData();
+      
+      // Add all the fields except image
+      Object.keys(sanitizedData).forEach(key => {
+        if (key !== 'image') {
+          formData.append(key, sanitizedData[key]);
         }
-        
-        // Log what we're about to send
-        debugLog('Sending multipart form data to /api/clock-out-multipart endpoint');
-        
-        // Send the form data
-        const response = await fetch(`${API_URL}/clock-out-multipart`, {
-          method: 'POST',
-          body: formData,
-        });
-        
-        if (!response.ok) {
-          const errorText = await response.text();
-          debugLog('Clock-out error (multipart):', errorText);
-          throw new Error(errorText || `HTTP error! status: ${response.status}`);
-        }
-        
-        try {
-          const data = await response.json();
-          debugLog('Received successful clock-out response:', data);
-          return data;
-        } catch (jsonError) {
-          debugLog('Failed to parse clock-out server response:', jsonError);
-          throw new Error('Failed to parse server response: ' + jsonError.message);
-        }
-      } catch (iosError) {
-        debugLog('iOS-specific clock-out handling failed:', iosError);
-        throw iosError;
+      });
+      
+      // Add the image as a blob if we have it
+      if (imageBlob) {
+        formData.append('image', imageBlob, 'photo.jpg');
+        debugLog('Added image blob to form data');
+      } else if (sanitizedData.image) {
+        // If no blob but we have image string data, add it as a field
+        formData.append('imageData', sanitizedData.image);
+        debugLog('Added image data string to form data');
+      }
+      
+      // Send the form data
+      const response = await fetch(`${API_URL}/clock-out-multipart`, {
+        method: 'POST',
+        body: formData,
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        debugLog('Clock-out error (multipart):', errorText);
+        throw new Error(errorText || `HTTP error! status: ${response.status}`);
+      }
+      
+      try {
+        const data = await response.json();
+        return data;
+      } catch (jsonError) {
+        debugLog('Failed to parse server response (multipart):', jsonError);
+        throw new Error('Failed to parse server response: ' + jsonError.message);
       }
     } else {
       // Standard approach for other browsers

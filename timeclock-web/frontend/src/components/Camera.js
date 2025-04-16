@@ -98,7 +98,6 @@ const Camera = ({ onCapture, onClear }) => {
   const [cameraError, setCameraError] = useState('');
   const [cameraStarted, setCameraStarted] = useState(false);
   const [countdown, setCountdown] = useState(null);
-  const [isTakingPhoto, setIsTakingPhoto] = useState(false);
   
   // On mount, don't auto-start camera to avoid iOS issues
   useEffect(() => {
@@ -106,15 +105,9 @@ const Camera = ({ onCapture, onClear }) => {
     
     // On unmount, ensure we clean up
     return () => {
-      debugLog('Camera component unmounting, cleaning up');
-      if (stream) {
-        stream.getTracks().forEach(track => {
-          track.stop();
-          debugLog('Stopped camera track on unmount');
-        });
-      }
+      stopCamera();
     };
-  }, [stream]);
+  }, []);
 
   const startCamera = async () => {
     setCameraStarted(true);
@@ -154,10 +147,7 @@ const Camera = ({ onCapture, onClear }) => {
           
           // Listen for loadedmetadata event
           videoRef.current.onloadedmetadata = () => {
-            debugLog('Video metadata loaded, dimensions:', {
-              width: videoRef.current.videoWidth,
-              height: videoRef.current.videoHeight
-            });
+            debugLog('Video metadata loaded');
             videoRef.current.play().catch(e => {
               console.error("Error playing video:", e);
               setCameraError(`Video playback error: ${e.message}`);
@@ -178,10 +168,7 @@ const Camera = ({ onCapture, onClear }) => {
           videoRef.current.setAttribute('muted', true);
           
           videoRef.current.onloadedmetadata = () => {
-            debugLog('Video metadata loaded (fallback)', {
-              width: videoRef.current.videoWidth,
-              height: videoRef.current.videoHeight
-            });
+            debugLog('Video metadata loaded (fallback)');
             videoRef.current.play().catch(e => {
               console.error("Error playing video:", e);
               setCameraError(`Video playback error: ${e.message}`);
@@ -221,7 +208,7 @@ const Camera = ({ onCapture, onClear }) => {
       
       // iOS specific guidance
       if (isIOS) {
-        errorMessage += ' On iOS, make sure you allow camera access when prompted and reload the page if camera is still not working.';
+        errorMessage += ' On iOS, make sure you allow camera access when prompted.';
       }
       
       setCameraError(errorMessage);
@@ -231,21 +218,9 @@ const Camera = ({ onCapture, onClear }) => {
   const stopCamera = () => {
     debugLog('Stopping camera');
     if (stream) {
-      stream.getTracks().forEach(track => {
-        debugLog(`Stopping track: ${track.kind}`, {
-          enabled: track.enabled, 
-          readyState: track.readyState
-        });
-        track.stop();
-      });
+      stream.getTracks().forEach(track => track.stop());
       setStream(null);
     }
-    
-    // Clear video source to ensure proper cleanup
-    if (videoRef.current && videoRef.current.srcObject) {
-      videoRef.current.srcObject = null;
-    }
-    
     setCameraStarted(false);
     setCountdown(null);
   };
@@ -269,108 +244,77 @@ const Camera = ({ onCapture, onClear }) => {
   };
 
   const capturePhoto = () => {
-    setIsTakingPhoto(false);
-    setCameraError('');
+    if (!videoRef.current || !canvasRef.current) {
+      setCameraError('Camera not ready. Please try again.');
+      return;
+    }
     
     debugLog('Capturing photo');
+
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
     
     try {
-      const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
-      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+      // Use a lower resolution for iOS devices to improve performance
+      const width = isIOS ? 640 : (video.videoWidth || 640);
+      const height = isIOS ? 480 : (video.videoHeight || 480);
       
-      debugLog('Browser detection:', { isSafari, isIOS });
+      // Set canvas dimensions
+      canvas.width = width;
+      canvas.height = height;
       
-      // Ensure video is visible and playing
-      if (!videoRef.current || !videoRef.current.videoWidth) {
-        throw new Error('Video not ready or not playing');
-      }
+      debugLog('Canvas dimensions set', { width, height });
       
-      const canvas = canvasRef.current;
-      const video = videoRef.current;
-      
-      // Set canvas dimensions to match video
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      
+      // Draw video frame on canvas
       const context = canvas.getContext('2d');
-      
-      // Clear canvas
-      context.clearRect(0, 0, canvas.width, canvas.height);
-      
-      // Draw the video frame to the canvas
       context.drawImage(video, 0, 0, canvas.width, canvas.height);
       
-      // iOS-specific tweaks
-      if (isIOS) {
-        debugLog('Using iOS-specific image capture approach');
+      // Use lower quality for iOS to ensure successful processing
+      const quality = isIOS ? 0.4 : 0.7;
+      
+      try {
+        const dataUrl = canvas.toDataURL('image/jpeg', quality);
+        debugLog('Generated data URL', { length: dataUrl.length });
         
-        // Try with toBlob first for iOS Safari
+        if (!dataUrl || dataUrl === 'data:,') {
+          throw new Error('Generated empty data URL');
+        }
+        
+        // Send the image data to parent component
+        setCapturedImage(dataUrl);
+        onCapture(dataUrl);
+        stopCamera(); // Stop camera after successful capture
+      } catch (canvasError) {
+        console.error('Canvas error:', canvasError);
+        
+        // iOS Safari fallback using blob
         try {
+          debugLog('Trying blob fallback for iOS');
           canvas.toBlob(
             (blob) => {
               if (!blob) {
-                debugLog('Failed to create blob, trying dataURL method');
-                try {
-                  // Fallback to lower quality
-                  const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
-                  if (!dataUrl || dataUrl === 'data:,') {
-                    throw new Error('Failed to generate data URL');
-                  }
-                  
-                  setCapturedImage(dataUrl);
-                  onCapture(dataUrl);
-                  stopCamera();
-                } catch (e) {
-                  setCameraError('Failed to capture image on iOS. Please try again.');
-                  console.error('iOS dataURL fallback failed:', e);
-                }
+                setCameraError('Failed to capture image. Please try again.');
                 return;
               }
-              
-              debugLog('Successfully created blob:', { size: blob.size });
               
               const reader = new FileReader();
               reader.onloadend = () => {
                 const base64data = reader.result;
-                debugLog('Successfully read blob as data URL:', { 
-                  length: base64data?.length,
-                  start: base64data?.substring(0, 30) 
-                });
-                
                 setCapturedImage(base64data);
                 onCapture(base64data);
-                stopCamera();
+                stopCamera(); // Stop camera after successful capture
               };
-              reader.onerror = (err) => {
-                console.error('FileReader error:', err);
-                setCameraError('Failed to process image on iOS. Please try again.');
+              reader.onerror = () => {
+                setCameraError('Failed to process image. Please try again.');
               };
               reader.readAsDataURL(blob);
             },
             'image/jpeg',
-            0.85
+            quality
           );
-        } catch (blobErr) {
-          console.error('iOS blob approach failed:', blobErr);
-          setCameraError('Failed to capture image on iOS (blob error). Please try again.');
-        }
-      } else {
-        // Standard approach for non-iOS
-        try {
-          const quality = 0.9;
-          const dataUrl = canvas.toDataURL('image/jpeg', quality);
-          
-          if (!dataUrl || dataUrl === 'data:,') {
-            throw new Error('Generated empty data URL');
-          }
-          
-          // Send the image data to parent component
-          setCapturedImage(dataUrl);
-          onCapture(dataUrl);
-          stopCamera(); // Stop camera after successful capture
-        } catch (canvasError) {
-          console.error('Canvas error:', canvasError);
-          setCameraError('Failed to capture image. Please try again.');
+        } catch (blobError) {
+          console.error('Blob creation error:', blobError);
+          setCameraError('Failed to process image. Please try again.');
         }
       }
     } catch (err) {
