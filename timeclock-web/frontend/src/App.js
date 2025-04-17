@@ -8,6 +8,7 @@ import LocationCard from './components/LocationCard';
 import RegistrationForm from './components/RegistrationForm';
 import TimeClockCard from './components/TimeClockCard';
 import Camera from './components/Camera';
+import IOSClockInFlow from './components/IOSClockInFlow';
 import Button from './components/Button';
 import { verifyLocation, getUserStatus, registerUser, clockIn, clockOut } from './services/api';
 import styled from 'styled-components';
@@ -552,6 +553,152 @@ function App() {
     debugLog('Camera capture cancelled');
   };
 
+  // iOS file handling
+  const handleIOSClockIn = async (file, noteText) => {
+    try {
+      setLoading(true);
+      setError('');
+      debugLog('Proceeding with iOS clock-in', { file });
+      
+      // Use the stored user data if available
+      let userData = userDetails;
+      
+      // Fallbacks for user data - same as current logic
+      if (!userData && !isNewUser) {
+        try {
+          const storedUser = localStorage.getItem('userDetails');
+          if (storedUser) {
+            userData = JSON.parse(storedUser);
+            debugLog('Retrieved user details from localStorage', userData);
+          }
+        } catch (e) {
+          console.error('Error parsing stored user details:', e);
+        }
+      }
+      
+      // FINAL CHECK for user data - same as current logic
+      if (!userData && !isNewUser && cookieId) {
+        debugLog('Missing user details, attempting final fetch before emergency form');
+        try {
+          const freshStatus = await getUserStatus(cookieId);
+          if (freshStatus && freshStatus.userDetails) {
+            userData = freshStatus.userDetails;
+            setUserDetails(userData);
+            localStorage.setItem('userDetails', JSON.stringify(userData));
+            debugLog('Successfully fetched user details directly', userData);
+          }
+        } catch (fetchError) {
+          console.error('Error during final user status fetch:', fetchError);
+        }
+      }
+      
+      // Show emergency form if still no user data
+      if (!userData && !isNewUser) {
+        debugLog('No user details available after all checks, showing emergency form');
+        setShowEmergencyForm(true);
+        setLoading(false);
+        return;
+      }
+      
+      // Create FormData for multipart upload - much more reliable than base64
+      const formData = new FormData();
+      formData.append('image', file);
+      formData.append('subContractor', (userData?.SubContractor || subContractor || '').trim());
+      formData.append('employee', (userData?.Employee || employeeName || '').trim());
+      formData.append('number', (userData?.Number || phoneNumber || '').trim());
+      formData.append('lat', location.lat);
+      formData.append('lon', location.lon);
+      formData.append('cookie', cookieId);
+      formData.append('notes', noteText || '');
+      formData.append('browserInfo', browserInfo.browser);
+      formData.append('isMobile', browserInfo.isMobile ? 'true' : 'false');
+      
+      // Save userDetails to localStorage
+      localStorage.setItem('userDetails', JSON.stringify({
+        SubContractor: userData?.SubContractor || subContractor,
+        Employee: userData?.Employee || employeeName,
+        Number: userData?.Number || phoneNumber
+      }));
+      
+      // Direct fetch to specific endpoint for iOS
+      debugLog('Sending iOS clock-in form data');
+      
+      const response = await fetch(`/api/clock-in-multipart`, {
+        method: 'POST',
+        body: formData
+      });
+      
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(text || `Server error: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      debugLog('iOS clock-in response:', data);
+      
+      if (data.id) {
+        setNotes('');
+        setShowCamera(false);
+        setShowEmergencyForm(false);
+        debugLog('Successfully clocked in with ID:', data.id);
+        checkUserStatus(cookieId);
+      } else {
+        setError('Clock in failed: ' + (data.error || 'Unknown error'));
+      }
+    } catch (err) {
+      console.error('iOS clock in error:', err);
+      setError('Clock in failed: ' + (err.message || 'Unknown error'));
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  const handleIOSClockOut = async (file, noteText) => {
+    try {
+      setLoading(true);
+      setError('');
+      debugLog('Proceeding with iOS clock-out', { file });
+      
+      // Create FormData for multipart upload
+      const formData = new FormData();
+      formData.append('image', file);
+      formData.append('cookie', cookieId);
+      formData.append('notes', noteText || '');
+      formData.append('browserInfo', browserInfo.browser);
+      formData.append('isMobile', browserInfo.isMobile ? 'true' : 'false');
+      
+      // Direct fetch to specific endpoint for iOS
+      debugLog('Sending iOS clock-out form data');
+      
+      const response = await fetch(`/api/clock-out-multipart`, {
+        method: 'POST',
+        body: formData
+      });
+      
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(text || `Server error: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      debugLog('iOS clock-out response:', data);
+      
+      if (data.success) {
+        setNotes('');
+        setShowCamera(false);
+        debugLog('Successfully clocked out');
+        checkUserStatus(cookieId);
+      } else {
+        setError('Clock out failed: ' + (data.error || 'Unknown error'));
+      }
+    } catch (err) {
+      console.error('iOS clock out error:', err);
+      setError('Clock out failed: ' + (err.message || 'Unknown error'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // If access is restricted and no valid subcontractor parameter, show an error
   if (redirectToHome) {
     return (
@@ -636,29 +783,42 @@ function App() {
       <Layout error={error} loading={loading}>
         {showCamera ? (
           <div>
-            <h2>{captureMode === 'clockIn' ? 'Take Clock-In Photo' : 'Take Clock-Out Photo'}</h2>
-            <Camera 
-              onCapture={handleCaptureImage}
-              onClear={() => handleCaptureImage('')}
-            />
-            <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center' }}>
-              <Button 
-                variant="secondary" 
-                onClick={cancelCapture}
-              >
-                Cancel
-              </Button>
-              <Button 
-                variant="primary" 
-                onClick={captureMode === 'clockIn' ? handleClockIn : handleClockOut}
-                disabled={
-                  (captureMode === 'clockIn' && !clockInImage) || 
-                  (captureMode === 'clockOut' && !clockOutImage)
-                }
-              >
-                {captureMode === 'clockIn' ? 'Complete Clock In' : 'Complete Clock Out'}
-              </Button>
-            </div>
+            {browserInfo.isIOS ? (
+              <IOSClockInFlow 
+                mode={captureMode}
+                onSubmit={captureMode === 'clockIn' ? handleIOSClockIn : handleIOSClockOut}
+                onCancel={cancelCapture}
+                notes={notes}
+                setNotes={setNotes}
+              />
+            ) : (
+              // Regular camera UI for non-iOS devices
+              <>
+                <h2>{captureMode === 'clockIn' ? 'Take Clock-In Photo' : 'Take Clock-Out Photo'}</h2>
+                <Camera 
+                  onCapture={handleCaptureImage}
+                  onClear={() => handleCaptureImage('')}
+                />
+                <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center' }}>
+                  <Button 
+                    variant="secondary" 
+                    onClick={cancelCapture}
+                  >
+                    Cancel
+                  </Button>
+                  <Button 
+                    variant="primary" 
+                    onClick={captureMode === 'clockIn' ? handleClockIn : handleClockOut}
+                    disabled={
+                      (captureMode === 'clockIn' && !clockInImage) || 
+                      (captureMode === 'clockOut' && !clockOutImage)
+                    }
+                  >
+                    {captureMode === 'clockIn' ? 'Complete Clock In' : 'Complete Clock Out'}
+                  </Button>
+                </div>
+              </>
+            )}
           </div>
         ) : (
           <>

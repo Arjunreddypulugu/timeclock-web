@@ -90,9 +90,15 @@ const TipMessage = styled.div`
   max-width: 400px;
 `;
 
+// Add a hidden file input for iOS
+const NativeFileInput = styled.input`
+  display: none;
+`;
+
 const Camera = ({ onCapture, onClear }) => {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
+  const fileInputRef = useRef(null); // New ref for file input
   const [stream, setStream] = useState(null);
   const [capturedImage, setCapturedImage] = useState(null);
   const [cameraError, setCameraError] = useState('');
@@ -109,9 +115,52 @@ const Camera = ({ onCapture, onClear }) => {
     };
   }, []);
 
+  // New function to handle file selection for iOS
+  const handleIOSFileChange = (e) => {
+    debugLog('iOS file input change triggered');
+    
+    if (!e.target.files || !e.target.files[0]) {
+      debugLog('No file selected');
+      return;
+    }
+    
+    const file = e.target.files[0];
+    debugLog('File selected:', { name: file.name, type: file.type, size: file.size });
+    
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const dataUrl = event.target.result;
+      debugLog('File read as data URL:', { length: dataUrl.length });
+      setCapturedImage(dataUrl);
+      onCapture(dataUrl);
+    };
+    reader.onerror = (error) => {
+      console.error('Error reading file:', error);
+      setCameraError('Failed to process the selected image.');
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // Function to trigger iOS camera
+  const startIOSCamera = () => {
+    debugLog('Starting iOS native camera');
+    if (fileInputRef.current) {
+      fileInputRef.current.click();
+    }
+  };
+
   const startCamera = async () => {
     setCameraStarted(true);
     setCameraError('');
+    
+    // For iOS, we'll use the native file input approach
+    if (isIOS) {
+      debugLog('Using iOS native camera input');
+      startIOSCamera();
+      return;
+    }
+    
+    // Existing camera code for non-iOS devices
     try {
       debugLog('Starting camera...');
       
@@ -250,7 +299,7 @@ const Camera = ({ onCapture, onClear }) => {
     }
     
     debugLog('Capturing photo');
-
+    
     const video = videoRef.current;
     const canvas = canvasRef.current;
     
@@ -269,52 +318,44 @@ const Camera = ({ onCapture, onClear }) => {
       const context = canvas.getContext('2d');
       context.drawImage(video, 0, 0, canvas.width, canvas.height);
       
-      // Use lower quality for iOS to ensure successful processing
-      const quality = isIOS ? 0.4 : 0.7;
+      // Use standard approach with lower quality for reliability
+      const quality = isIOS ? 0.5 : 0.7; // Lower quality for iOS
       
       try {
+        // Try the simple approach first for all devices
         const dataUrl = canvas.toDataURL('image/jpeg', quality);
-        debugLog('Generated data URL', { length: dataUrl.length });
         
         if (!dataUrl || dataUrl === 'data:,') {
-          throw new Error('Generated empty data URL');
+          throw new Error('Empty data URL');
         }
         
-        // Send the image data to parent component
+        debugLog('Generated data URL', { length: dataUrl.length });
         setCapturedImage(dataUrl);
         onCapture(dataUrl);
-        stopCamera(); // Stop camera after successful capture
-      } catch (canvasError) {
-        console.error('Canvas error:', canvasError);
+        stopCamera();
+      } catch (error) {
+        console.error('Error capturing image:', error);
         
-        // iOS Safari fallback using blob
-        try {
-          debugLog('Trying blob fallback for iOS');
-          canvas.toBlob(
-            (blob) => {
-              if (!blob) {
-                setCameraError('Failed to capture image. Please try again.');
-                return;
-              }
-              
-              const reader = new FileReader();
-              reader.onloadend = () => {
-                const base64data = reader.result;
-                setCapturedImage(base64data);
-                onCapture(base64data);
-                stopCamera(); // Stop camera after successful capture
-              };
-              reader.onerror = () => {
-                setCameraError('Failed to process image. Please try again.');
-              };
-              reader.readAsDataURL(blob);
-            },
-            'image/jpeg',
-            quality
-          );
-        } catch (blobError) {
-          console.error('Blob creation error:', blobError);
-          setCameraError('Failed to process image. Please try again.');
+        // Simple fallback for iOS - try a different quality
+        if (isIOS) {
+          try {
+            // Try with even lower quality
+            const fallbackDataUrl = canvas.toDataURL('image/jpeg', 0.1);
+            
+            if (!fallbackDataUrl || fallbackDataUrl === 'data:,') {
+              throw new Error('Fallback empty data URL');
+            }
+            
+            debugLog('Generated fallback data URL', { length: fallbackDataUrl.length });
+            setCapturedImage(fallbackDataUrl);
+            onCapture(fallbackDataUrl);
+            stopCamera();
+          } catch (fallbackError) {
+            setCameraError('Failed to capture image on iOS. Please make sure lighting is good and try again.');
+            console.error('iOS fallback error:', fallbackError);
+          }
+        } else {
+          setCameraError('Failed to capture image. Please try again.');
         }
       }
     } catch (err) {
@@ -335,6 +376,15 @@ const Camera = ({ onCapture, onClear }) => {
 
   return (
     <CameraContainer>
+      {/* Add the native file input for iOS */}
+      <NativeFileInput
+        type="file"
+        accept="image/*"
+        capture="environment"
+        ref={fileInputRef}
+        onChange={handleIOSFileChange}
+      />
+      
       <VideoContainer>
         {!cameraStarted && !capturedImage && (
           <div style={{ 
@@ -384,14 +434,14 @@ const Camera = ({ onCapture, onClear }) => {
       
       {isIOS && !capturedImage && (
         <TipMessage>
-          iOS tip: Make sure to allow camera access when prompted. Hold your device steady.
+          iOS tip: The camera will open in a separate screen. Take your photo and tap "Use Photo" to continue.
         </TipMessage>
       )}
       
       <ButtonContainer>
         {!cameraStarted && !capturedImage && (
           <Button variant="primary" onClick={startCamera} style={{ width: '100%' }}>
-            Start Camera
+            {isIOS ? "Open Camera" : "Start Camera"}
           </Button>
         )}
         
